@@ -1,0 +1,22 @@
+{
+  "name": "wutz-io-website",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "generate-article": "node scripts/generate-article.mjs"
+  },
+  "dependencies": {
+    "astro": "^7.1.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "typescript": "^5.7.2",
+    "@anthropic-ai/sdk": "^0.114.0",
+    "fast-xml-parser": "^5.10.1"
+  }
+}

@@ -1,0 +1,37 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+import { getCollection, render } from "astro:content";
+
+export async function getStaticPaths() {
+  const articles = await getCollection("articles");
+  return articles.map((article) => ({
+    params: { id: article.id },
+    props: { article },
+  }));
+}
+
+const { article } = Astro.props;
+const { Content } = await render(article);
+---
+
+<Layout title={`${article.data.title} – wutz.io`} description={article.data.dek}>
+  <p><a href="/">&larr; Zurück</a></p>
+  <h1 style="font-size: 34px; line-height: 1.2; margin-bottom: 6px;">{article.data.title}</h1>
+  <p style="color: var(--muted); font-size: 18px; margin-top: 0;">{article.data.dek}</p>
+  <p style="font-size: 13px; color: var(--muted);">
+    {article.data.pubDate.toLocaleDateString("de-DE")} · Quelle:{" "}
+    <a href={article.data.sourceUrl} target="_blank" rel="noopener noreferrer">
+      {article.data.sourceName}
+    </a>
+  </p>
+  <div style="margin-top: 24px;">
+    <Content />
+  </div>
+  {
+    article.data.tags.length > 0 && (
+      <p style="margin-top: 30px; font-size: 13px; color: var(--muted);">
+        {article.data.tags.map((tag) => `#${tag}`).join("  ")}
+      </p>
+    )
+  }
+</Layout>
