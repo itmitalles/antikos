@@ -1,25 +1,48 @@
-export type ResourceType = "wood" | "brick" | "sheep" | "wheat" | "ore";
+export type ResourceType = "wood" | "stone" | "marble" | "grain" | "olive" | "wine" | "ore";
 
-export const RESOURCE_TYPES: ResourceType[] = ["wood", "brick", "sheep", "wheat", "ore"];
+export const RESOURCE_TYPES: ResourceType[] = ["wood", "stone", "marble", "grain", "olive", "wine", "ore"];
 
 export const RESOURCE_ICON: Record<ResourceType, string> = {
   wood: "🪵",
-  brick: "🧱",
-  sheep: "🐑",
-  wheat: "🌾",
+  stone: "🪨",
+  marble: "🏛️",
+  grain: "🌾",
+  olive: "🫒",
+  wine: "🍷",
   ore: "⛏️",
 };
 
 export const RESOURCE_LABEL: Record<ResourceType, string> = {
   wood: "Holz",
-  brick: "Lehm",
-  sheep: "Wolle",
-  wheat: "Getreide",
+  stone: "Stein",
+  marble: "Marmor",
+  grain: "Getreide",
+  olive: "Oliven",
+  wine: "Wein",
   ore: "Erz",
 };
 
-export const ARMY_COST: Partial<Record<ResourceType, number>> = { wheat: 1, ore: 1 };
-export const EXPAND_COST: Partial<Record<ResourceType, number>> = { wood: 1, brick: 1 };
+/** Building name per tier (1-3) for each resource type's development. */
+export const BUILDING_NAMES: Record<ResourceType, [string, string, string]> = {
+  wood: ["Holzfällerlager", "Sägewerk", "Forstgut"],
+  stone: ["Steinbruch", "Steinmetzhof", "Bruchgut"],
+  marble: ["Marmorgrube", "Marmorbruch", "Marmorpalast"],
+  grain: ["Acker", "Gehöft", "Kornkammer"],
+  olive: ["Ölhain", "Olivenpresse", "Ölgut"],
+  wine: ["Rebstock", "Weinberg", "Weingut"],
+  ore: ["Schürfstelle", "Erzmine", "Bergwerk"],
+};
+
+export const MAX_TILE_LEVEL = 3;
+
+export const ARMY_COST: Partial<Record<ResourceType, number>> = { ore: 1, grain: 1 };
+export const EXPAND_COST: Partial<Record<ResourceType, number>> = { wood: 1, stone: 1 };
+export const FORT_COST: Partial<Record<ResourceType, number>> = { stone: 2, marble: 1 };
+
+/** Cost to upgrade a tile from `currentLevel` to `currentLevel + 1`. */
+export function upgradeCost(resource: ResourceType, currentLevel: number): Partial<Record<ResourceType, number>> {
+  return { [resource]: currentLevel + 1 };
+}
 
 export interface Tile {
   id: string;
@@ -30,6 +53,9 @@ export interface Tile {
   number: number | null;
   ownerId: string | null;
   armies: number;
+  /** Development tier of the resource building on this tile: 0 = undeveloped, 1-3 = built up. */
+  level: number;
+  hasFort: boolean;
 }
 
 export interface Continent {
@@ -88,5 +114,5 @@ export interface GameState {
 }
 
 export function emptyStock(): ResourceStock {
-  return { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
+  return { wood: 0, stone: 0, marble: 0, grain: 0, olive: 0, wine: 0, ore: 0 };
 }

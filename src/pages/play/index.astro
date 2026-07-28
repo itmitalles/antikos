@@ -141,6 +141,7 @@
       #turn-info .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
       #dice-display { margin-top: 4px; color: var(--muted); font-size: 14px; min-height: 1.4em; }
       #action-hint { margin-top: 8px; color: var(--muted); font-size: 13px; }
+      #tile-info { margin-top: 6px; font-size: 13px; color: var(--ink); min-height: 1.2em; }
       .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 
       #resource-panel { display: flex; gap: 12px; flex-wrap: wrap; font-size: 16px; }
@@ -212,9 +213,12 @@
           <div id="turn-info"></div>
           <div id="dice-display"></div>
           <div id="action-hint"></div>
+          <div id="tile-info"></div>
           <div class="actions">
             <button id="action-roll" class="hidden">Würfeln</button>
             <button id="action-build-army" class="hidden">Armee bauen (🌾+⛏️)</button>
+            <button id="action-upgrade" class="hidden">Ausbauen</button>
+            <button id="action-fort" class="hidden">Burg bauen</button>
             <button id="action-end-build" class="hidden">Weiter zum Angriff</button>
             <button id="action-end-turn" class="hidden">Zug beenden</button>
           </div>

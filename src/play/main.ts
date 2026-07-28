@@ -2,9 +2,12 @@ import { aiPlacementMove, runAiTurn } from "./ai";
 import {
   attack,
   buildArmy,
+  buildFort,
   canAttack,
   canBuildArmy,
+  canBuildFort,
   canExpand,
+  canUpgradeTile,
   createGame,
   currentPlayer,
   endTurn,
@@ -16,11 +19,22 @@ import {
   placementCurrentPlayerId,
   placeInitialArmy,
   rollDice,
+  upgradeTile,
   type PlayerConfig,
 } from "./engine";
 import { computeLayout, drawBoard, pixelToTileId, type Layout } from "./render";
 import { PLAYER_COLORS } from "./engine";
-import { RESOURCE_ICON, RESOURCE_TYPES } from "./types";
+import {
+  ARMY_COST,
+  BUILDING_NAMES,
+  FORT_COST,
+  MAX_TILE_LEVEL,
+  RESOURCE_ICON,
+  RESOURCE_LABEL,
+  RESOURCE_TYPES,
+  upgradeCost,
+  type ResourceType,
+} from "./types";
 import type { GameState } from "./types";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -39,9 +53,12 @@ const resourcePanel = $("resource-panel");
 const playersPanel = $("players-panel");
 const logPanel = $("log-panel");
 const hint = $("action-hint");
+const tileInfo = $("tile-info");
 
 const rollBtn = $<HTMLButtonElement>("action-roll");
 const buildArmyBtn = $<HTMLButtonElement>("action-build-army");
+const upgradeBtn = $<HTMLButtonElement>("action-upgrade");
+const fortBtn = $<HTMLButtonElement>("action-fort");
 const endBuildBtn = $<HTMLButtonElement>("action-end-build");
 const endTurnBtn = $<HTMLButtonElement>("action-end-turn");
 
@@ -118,6 +135,31 @@ function legalTargets(): Set<string> {
   return new Set();
 }
 
+function costLabel(cost: Partial<Record<ResourceType, number>>): string {
+  return Object.entries(cost)
+    .map(([res, amt]) => `${amt}${RESOURCE_ICON[res as ResourceType]}`)
+    .join(" ");
+}
+
+function renderTileInfo() {
+  if (!selectedTileId) {
+    tileInfo.innerHTML = "";
+    return;
+  }
+  const tile = state.tiles[selectedTileId];
+  const owner = tile.ownerId ? state.players.find((p) => p.id === tile.ownerId) : null;
+  const parts: string[] = [`<strong>${selectedTileId}</strong>`];
+  if (tile.resource) {
+    const name = tile.level > 0 ? BUILDING_NAMES[tile.resource][tile.level - 1] : RESOURCE_LABEL[tile.resource];
+    parts.push(`${name}${tile.level > 0 ? ` (Stufe ${tile.level}/${MAX_TILE_LEVEL})` : ""}`);
+  } else {
+    parts.push("Ödland");
+  }
+  if (owner) parts.push(`Besitzer: ${owner.name}`);
+  if (tile.hasFort) parts.push("🏰 befestigt");
+  tileInfo.innerHTML = parts.join(" · ");
+}
+
 function render() {
   drawBoard(ctx, state, layout, { selectedTileId, legalTargets: legalTargets() });
 
@@ -158,6 +200,7 @@ function render() {
 
   updateButtons();
   updateHint();
+  renderTileInfo();
 }
 
 function phaseLabel(phase: GameState["phase"]): string {
@@ -207,10 +250,29 @@ function updateHint() {
 function updateButtons() {
   const player = currentPlayer(state);
   const isHuman = player.kind === "human";
+  const inBuild = isHuman && state.phase === "build";
+
   rollBtn.classList.toggle("hidden", !(isHuman && state.phase === "roll"));
-  buildArmyBtn.classList.toggle("hidden", !(isHuman && state.phase === "build"));
+
+  buildArmyBtn.classList.toggle("hidden", !inBuild);
+  buildArmyBtn.textContent = `Armee bauen (${costLabel(ARMY_COST)})`;
   buildArmyBtn.disabled = !(selectedTileId && canBuildArmy(state, selectedTileId));
-  endBuildBtn.classList.toggle("hidden", !(isHuman && state.phase === "build"));
+
+  upgradeBtn.classList.toggle("hidden", !inBuild);
+  const tile = selectedTileId ? state.tiles[selectedTileId] : null;
+  if (inBuild && tile?.resource && tile.level > 0 && tile.level < MAX_TILE_LEVEL) {
+    upgradeBtn.textContent = `Ausbauen (${costLabel(upgradeCost(tile.resource, tile.level))})`;
+    upgradeBtn.disabled = !canUpgradeTile(state, selectedTileId!);
+  } else {
+    upgradeBtn.textContent = "Ausbauen";
+    upgradeBtn.disabled = true;
+  }
+
+  fortBtn.classList.toggle("hidden", !inBuild);
+  fortBtn.textContent = `Burg bauen (${costLabel(FORT_COST)})`;
+  fortBtn.disabled = !(selectedTileId && canBuildFort(state, selectedTileId));
+
+  endBuildBtn.classList.toggle("hidden", !inBuild);
   endTurnBtn.classList.toggle("hidden", !(isHuman && state.phase === "attack"));
 }
 
@@ -222,6 +284,20 @@ rollBtn.addEventListener("click", () => {
 buildArmyBtn.addEventListener("click", () => {
   if (selectedTileId) {
     buildArmy(state, selectedTileId);
+    render();
+  }
+});
+
+upgradeBtn.addEventListener("click", () => {
+  if (selectedTileId) {
+    upgradeTile(state, selectedTileId);
+    render();
+  }
+});
+
+fortBtn.addEventListener("click", () => {
+  if (selectedTileId) {
+    buildFort(state, selectedTileId);
     render();
   }
 });

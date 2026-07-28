@@ -1,9 +1,12 @@
 import {
   attack,
   buildArmy,
+  buildFort,
   canAttack,
   canBuildArmy,
+  canBuildFort,
   canExpand,
+  canUpgradeTile,
   currentPlayer,
   endTurn,
   expand,
@@ -14,6 +17,7 @@ import {
   placementCurrentPlayerId,
   placeInitialArmy,
   rollDice,
+  upgradeTile,
 } from "./engine";
 import type { Rng } from "./mapgen";
 import type { GameState } from "./types";
@@ -70,6 +74,21 @@ function bestExpandMove(state: GameState, playerId: string): [string, string] | 
   return null;
 }
 
+function bestUpgradeMove(state: GameState, playerId: string): string | null {
+  const candidates = ownedTileIds(state, playerId)
+    .filter((id) => canUpgradeTile(state, id))
+    .sort((a, b) => state.tiles[a].level - state.tiles[b].level);
+  return candidates[0] ?? null;
+}
+
+function bestFortMove(state: GameState, playerId: string): string | null {
+  const candidates = ownedTileIds(state, playerId).filter(
+    (id) => hasEnemyNeighbor(state, id, playerId) && canBuildFort(state, id)
+  );
+  if (candidates.length === 0) return null;
+  return candidates.sort((a, b) => state.tiles[a].armies - state.tiles[b].armies)[0];
+}
+
 function bestAttackMove(state: GameState, playerId: string): [string, string] | null {
   const owned = ownedTileIds(state, playerId).filter((id) => state.tiles[id].armies >= 3);
   let best: [string, string] | null = null;
@@ -110,9 +129,19 @@ export function runAiTurn(state: GameState, rng: Rng = Math.random) {
       expand(state, expandMove[0], expandMove[1]);
       continue;
     }
+    const upgradeMove = bestUpgradeMove(state, player.id);
+    if (upgradeMove) {
+      upgradeTile(state, upgradeMove);
+      continue;
+    }
     const target = weakestBorderTile(state, player.id) ?? ownedTileIds(state, player.id)[0];
     if (target && canBuildArmy(state, target)) {
       buildArmy(state, target);
+      continue;
+    }
+    const fortMove = bestFortMove(state, player.id);
+    if (fortMove) {
+      buildFort(state, fortMove);
       continue;
     }
     break;

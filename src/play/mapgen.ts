@@ -112,6 +112,8 @@ export function generateMap(rng: Rng = Math.random): { tiles: Record<string, Til
       number: isWasteland ? null : numbers[idx],
       ownerId: null,
       armies: 0,
+      level: 0,
+      hasFort: false,
     };
   }
 

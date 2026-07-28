@@ -1,14 +1,14 @@
 import { axialFromId, hexId, neighbors } from "./hex";
 import { generateMap, type Rng } from "./mapgen";
 import type { GameState, Player, PlayerKind, ResourceStock, ResourceType } from "./types";
-import { ARMY_COST, EXPAND_COST, emptyStock } from "./types";
+import { ARMY_COST, EXPAND_COST, FORT_COST, MAX_TILE_LEVEL, emptyStock, upgradeCost } from "./types";
 
 export const PLAYER_COLORS = ["#d81e3f", "#2f6fed", "#2fa84f", "#e8a72f"];
 export const STARTING_STOCK: Partial<Record<ResourceType, number>> = {
   wood: 2,
-  brick: 2,
-  sheep: 1,
-  wheat: 1,
+  stone: 2,
+  olive: 1,
+  grain: 1,
   ore: 1,
 };
 const ARMIES_PER_PLAYER_PLACEMENT = 3;
@@ -111,6 +111,7 @@ export function placeInitialArmy(state: GameState, tileId: string): boolean {
 
   tile.ownerId = playerId;
   tile.armies += 1;
+  if (tile.resource) tile.level = 1;
   log(state, `${getPlayer(state, playerId).name} platziert eine Armee auf ${tileId}.`);
   state.placementIndex += 1;
 
@@ -169,9 +170,9 @@ export function rollDice(state: GameState, rng: Rng = Math.random): [number, num
     const gains = new Map<string, Partial<Record<ResourceType, number>>>();
     for (const id of state.tileOrder) {
       const tile = state.tiles[id];
-      if (tile.number === sum && tile.ownerId && tile.resource && tile.armies > 0) {
+      if (tile.number === sum && tile.ownerId && tile.resource && tile.level > 0) {
         const g = gains.get(tile.ownerId) ?? {};
-        g[tile.resource] = (g[tile.resource] ?? 0) + tile.armies;
+        g[tile.resource] = (g[tile.resource] ?? 0) + tile.level;
         gains.set(tile.ownerId, g);
       }
     }
@@ -233,7 +234,44 @@ export function expand(state: GameState, fromTileId: string, toTileId: string): 
   const to = state.tiles[toTileId];
   to.ownerId = player.id;
   to.armies = 1;
+  if (to.resource) to.level = 1;
   log(state, `${player.name} erschließt ${toTileId}.`);
+  return true;
+}
+
+export function canUpgradeTile(state: GameState, tileId: string): boolean {
+  if (state.phase !== "build") return false;
+  const player = currentPlayer(state);
+  const tile = state.tiles[tileId];
+  if (!tile || tile.ownerId !== player.id || !tile.resource) return false;
+  if (tile.level < 1 || tile.level >= MAX_TILE_LEVEL) return false;
+  return canAfford(player, upgradeCost(tile.resource, tile.level));
+}
+
+export function upgradeTile(state: GameState, tileId: string): boolean {
+  if (!canUpgradeTile(state, tileId)) return false;
+  const player = currentPlayer(state);
+  const tile = state.tiles[tileId];
+  pay(player, upgradeCost(tile.resource!, tile.level));
+  tile.level += 1;
+  log(state, `${player.name} baut ${tileId} aus (Stufe ${tile.level}).`);
+  return true;
+}
+
+export function canBuildFort(state: GameState, tileId: string): boolean {
+  if (state.phase !== "build") return false;
+  const player = currentPlayer(state);
+  const tile = state.tiles[tileId];
+  if (!tile || tile.ownerId !== player.id || tile.hasFort) return false;
+  return canAfford(player, FORT_COST);
+}
+
+export function buildFort(state: GameState, tileId: string): boolean {
+  if (!canBuildFort(state, tileId)) return false;
+  const player = currentPlayer(state);
+  pay(player, FORT_COST);
+  state.tiles[tileId].hasFort = true;
+  log(state, `${player.name} errichtet eine Burg auf ${tileId}.`);
   return true;
 }
 
@@ -277,7 +315,7 @@ export function attack(state: GameState, fromTileId: string, toTileId: string, r
   const defender = getPlayer(state, to.ownerId!);
 
   const attackerDiceCount = Math.min(from.armies - 1, 3);
-  const defenderDiceCount = Math.min(to.armies, 2);
+  const defenderDiceCount = Math.min(to.armies, to.hasFort ? 3 : 2);
   const attackerDice = rollDiceDesc(attackerDiceCount, rng);
   const defenderDice = rollDiceDesc(defenderDiceCount, rng);
 
