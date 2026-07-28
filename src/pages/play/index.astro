@@ -1,0 +1,248 @@
+---
+---
+
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>wutz.io/play — Kolonie &amp; Konflikt</title>
+    <meta name="description" content="Browsergame inspiriert von Siedlern und Risiko: Hex-Karte, Rohstoffe, Armeen, Eroberung." />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>" />
+    <style>
+      :root {
+        --bg: #17181c;
+        --panel: #1f2127;
+        --panel-2: #23252c;
+        --ink: #eceef2;
+        --muted: #9aa0ac;
+        --accent: #ffe066;
+        --border: #33363f;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      a { color: var(--accent); }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 18px;
+        border-bottom: 1px solid var(--border);
+      }
+      .topbar .brand { font-weight: 700; letter-spacing: -0.5px; text-decoration: none; color: var(--ink); }
+      .topbar .brand span { color: var(--accent); }
+      .hidden { display: none !important; }
+
+      #setup-screen {
+        max-width: 520px;
+        margin: 40px auto;
+        padding: 24px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+      #setup-screen h1 { margin-top: 0; font-size: 22px; }
+      #setup-screen p { color: var(--muted); }
+      #setup-screen label { display: block; margin: 14px 0 6px; color: var(--muted); font-size: 13px; }
+      #setup-screen select { padding: 6px 8px; background: var(--panel-2); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; }
+      .player-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 8px 0;
+      }
+      .player-row .swatch, .player-chip .swatch {
+        width: 14px; height: 14px; border-radius: 50%;
+        background: var(--pcolor);
+        flex-shrink: 0;
+        display: inline-block;
+      }
+      .player-row input[type="text"] {
+        flex: 1;
+        padding: 6px 8px;
+        background: var(--panel-2);
+        color: var(--ink);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      .player-row select {
+        padding: 6px 8px;
+        background: var(--panel-2);
+        color: var(--ink);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      button {
+        cursor: pointer;
+        font: inherit;
+        padding: 9px 16px;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--ink);
+      }
+      button:hover:not(:disabled) { border-color: var(--accent); }
+      button:disabled { opacity: 0.4; cursor: not-allowed; }
+      #start-button, #restart-button {
+        background: var(--accent);
+        color: #201a00;
+        border: none;
+        font-weight: 700;
+        margin-top: 18px;
+      }
+
+      #game-screen {
+        display: flex;
+        gap: 16px;
+        padding: 16px;
+        max-width: 1180px;
+        margin: 0 auto;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+      #board-wrap {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        flex: 1 1 520px;
+        min-width: 0;
+        display: flex;
+        justify-content: center;
+      }
+      #board-canvas { max-width: 100%; height: auto; display: block; }
+
+      #sidebar {
+        flex: 0 0 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      .panel h2 {
+        margin: 0 0 8px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+      #turn-info { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+      #turn-info .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+      #dice-display { margin-top: 4px; color: var(--muted); font-size: 14px; min-height: 1.4em; }
+      #action-hint { margin-top: 8px; color: var(--muted); font-size: 13px; }
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+      #resource-panel { display: flex; gap: 12px; flex-wrap: wrap; font-size: 16px; }
+      #resource-panel .res { background: var(--panel-2); border-radius: 6px; padding: 4px 8px; }
+
+      .player-chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 0;
+        font-size: 13px;
+      }
+      .player-chip.dead { opacity: 0.4; text-decoration: line-through; }
+
+      #log-panel {
+        max-height: 220px;
+        overflow-y: auto;
+        font-size: 12.5px;
+        color: var(--muted);
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      #gameover-banner {
+        position: fixed;
+        inset: 0;
+        background: #000000cc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+      }
+      #gameover-banner .box {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 30px 40px;
+        text-align: center;
+      }
+      #gameover-banner h2 { margin: 0 0 6px; font-size: 26px; }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <a class="brand" href="/">wutz<span>.io</span></a>
+      <a href="/">← zur Startseite</a>
+    </div>
+
+    <div id="setup-screen">
+      <h1>⚔️ Kolonie &amp; Konflikt</h1>
+      <p>Siedle Hex-Felder für Rohstoffe, baue Armeen und erobere die Karte — inspiriert von Siedlern von Catan und Risiko. 2–4 Spieler, lokal (Hotseat) oder gegen KI.</p>
+      <label for="player-count">Spieleranzahl</label>
+      <select id="player-count">
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4" selected>4</option>
+      </select>
+      <div id="player-rows"></div>
+      <button id="start-button">Spiel starten</button>
+    </div>
+
+    <div id="game-screen" class="hidden">
+      <div id="board-wrap">
+        <canvas id="board-canvas"></canvas>
+      </div>
+      <div id="sidebar">
+        <div class="panel">
+          <div id="turn-info"></div>
+          <div id="dice-display"></div>
+          <div id="action-hint"></div>
+          <div class="actions">
+            <button id="action-roll" class="hidden">Würfeln</button>
+            <button id="action-build-army" class="hidden">Armee bauen (🌾+⛏️)</button>
+            <button id="action-end-build" class="hidden">Weiter zum Angriff</button>
+            <button id="action-end-turn" class="hidden">Zug beenden</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Rohstoffe</h2>
+          <div id="resource-panel"></div>
+        </div>
+        <div class="panel">
+          <h2>Spieler</h2>
+          <div id="players-panel"></div>
+        </div>
+        <div class="panel">
+          <h2>Verlauf</h2>
+          <div id="log-panel"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="gameover-banner" class="hidden">
+      <div class="box">
+        <h2>🏆 <span id="winner-name"></span> gewinnt!</h2>
+        <button id="restart-button">Neues Spiel</button>
+      </div>
+    </div>
+
+    <script>
+      import "../../play/main.ts";
+    </script>
+  </body>
+</html>
