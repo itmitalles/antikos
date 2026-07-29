@@ -35,13 +35,87 @@ export const BUILDING_NAMES: Record<ResourceType, [string, string, string]> = {
 
 export const MAX_TILE_LEVEL = 3;
 
-export const ARMY_COST: Partial<Record<ResourceType, number>> = { ore: 1, grain: 1 };
 export const EXPAND_COST: Partial<Record<ResourceType, number>> = { wood: 1, stone: 1 };
 export const FORT_COST: Partial<Record<ResourceType, number>> = { stone: 2, marble: 1 };
 
 /** Cost to upgrade a tile from `currentLevel` to `currentLevel + 1`. */
 export function upgradeCost(resource: ResourceType, currentLevel: number): Partial<Record<ResourceType, number>> {
   return { [resource]: currentLevel + 1 };
+}
+
+// --- Population (Imperator Rome-inspired, simplified) ---------------------
+
+export type PopClass = "slaves" | "freemen" | "citizens" | "nobles";
+export const POP_CLASSES: PopClass[] = ["slaves", "freemen", "citizens", "nobles"];
+export type Population = Record<PopClass, number>;
+
+export const POP_ICON: Record<PopClass, string> = {
+  slaves: "⛓️",
+  freemen: "🧑‍🌾",
+  citizens: "🏺",
+  nobles: "👑",
+};
+export const POP_LABEL: Record<PopClass, string> = {
+  slaves: "Sklaven",
+  freemen: "Freie",
+  citizens: "Bürger",
+  nobles: "Adel",
+};
+/** Bar color per class, used by the population bar on the tile. */
+export const POP_COLOR: Record<PopClass, string> = {
+  slaves: "#6b6b6b",
+  freemen: "#8a9b6e",
+  citizens: "#d8c98a",
+  nobles: "#c9a53b",
+};
+
+/** Population capacity per tile development level (index = tile.level). */
+export const POP_CAPACITY_BY_LEVEL = [0, 3, 5, 7];
+
+/** Target share of total population each class trends toward as it grows. */
+export const POP_TARGET_RATIO: Record<PopClass, number> = {
+  slaves: 0.5,
+  freemen: 0.3,
+  citizens: 0.15,
+  nobles: 0.05,
+};
+
+export function emptyPopulation(): Population {
+  return { slaves: 0, freemen: 0, citizens: 0, nobles: 0 };
+}
+
+// --- Units ------------------------------------------------------------
+
+export type UnitType = "militia" | "legionary" | "cavalry";
+export const UNIT_TYPES: UnitType[] = ["militia", "legionary", "cavalry"];
+export type Units = Record<UnitType, number>;
+
+export const UNIT_ICON: Record<UnitType, string> = {
+  militia: "🗡️",
+  legionary: "🛡️",
+  cavalry: "🐎",
+};
+export const UNIT_LABEL: Record<UnitType, string> = {
+  militia: "Miliz",
+  legionary: "Legionäre",
+  cavalry: "Reiterei",
+};
+/** Combat die bonus (added to the 1-6 roll) — stronger troops fight better. */
+export const UNIT_POWER: Record<UnitType, number> = { militia: 0, legionary: 1, cavalry: 2 };
+/** Which pop class is consumed (1 per recruit) to raise this unit type. */
+export const UNIT_SOURCE_CLASS: Record<UnitType, PopClass> = {
+  militia: "freemen",
+  legionary: "citizens",
+  cavalry: "nobles",
+};
+export const UNIT_COST: Record<UnitType, Partial<Record<ResourceType, number>>> = {
+  militia: { ore: 1 },
+  legionary: { ore: 1, grain: 1 },
+  cavalry: { ore: 2, grain: 1 },
+};
+
+export function emptyUnits(): Units {
+  return { militia: 0, legionary: 0, cavalry: 0 };
 }
 
 export interface Tile {
@@ -52,7 +126,8 @@ export interface Tile {
   resource: ResourceType | null;
   number: number | null;
   ownerId: string | null;
-  armies: number;
+  units: Units;
+  population: Population;
   /** Development tier of the resource building on this tile: 0 = undeveloped, 1-3 = built up. */
   level: number;
   hasFort: boolean;
@@ -86,16 +161,6 @@ export type Phase =
   | "build"
   | "attack"
   | "gameover";
-
-export interface CombatResult {
-  attackerTile: string;
-  defenderTile: string;
-  attackerDice: number[];
-  defenderDice: number[];
-  attackerLosses: number;
-  defenderLosses: number;
-  captured: boolean;
-}
 
 export interface GameState {
   tiles: Record<string, Tile>;

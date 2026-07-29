@@ -1,9 +1,9 @@
 import { hexId, hexagonBoard, neighbors } from "./hex";
 import type { Continent, ResourceType, Tile } from "./types";
-import { RESOURCE_TYPES } from "./types";
+import { RESOURCE_TYPES, emptyPopulation, emptyUnits } from "./types";
 
 export const BOARD_RADIUS = 3;
-const CONTINENT_NAMES = ["Nordmark", "Sudholm", "Ostrand", "Westfeld", "Kernland", "Fernau"];
+const CONTINENT_NAMES = ["Latium", "Achaia", "Numidia", "Ionia", "Hispania", "Illyrien"];
 const CONTINENT_COLORS = ["#4a7c59", "#7c4a6b", "#4a5f7c", "#7c6b4a", "#6b4a7c", "#4a7c6b"];
 
 export type Rng = () => number;
@@ -111,7 +111,8 @@ export function generateMap(rng: Rng = Math.random): { tiles: Record<string, Til
       resource: isWasteland ? null : shuffledResources[idx],
       number: isWasteland ? null : numbers[idx],
       ownerId: null,
-      armies: 0,
+      units: emptyUnits(),
+      population: emptyPopulation(),
       level: 0,
       hasFort: false,
     };

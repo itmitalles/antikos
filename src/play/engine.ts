@@ -1,7 +1,21 @@
 import { axialFromId, hexId, neighbors } from "./hex";
 import { generateMap, type Rng } from "./mapgen";
-import type { GameState, Player, PlayerKind, ResourceStock, ResourceType } from "./types";
-import { ARMY_COST, EXPAND_COST, FORT_COST, MAX_TILE_LEVEL, emptyStock, upgradeCost } from "./types";
+import type { GameState, Player, PlayerKind, PopClass, ResourceStock, ResourceType, Tile, UnitType, Units } from "./types";
+import {
+  EXPAND_COST,
+  FORT_COST,
+  MAX_TILE_LEVEL,
+  POP_CAPACITY_BY_LEVEL,
+  POP_CLASSES,
+  POP_TARGET_RATIO,
+  UNIT_COST,
+  UNIT_LABEL,
+  UNIT_SOURCE_CLASS,
+  UNIT_TYPES,
+  UNIT_POWER,
+  emptyStock,
+  upgradeCost,
+} from "./types";
 
 export const PLAYER_COLORS = ["#d81e3f", "#2f6fed", "#2fa84f", "#e8a72f"];
 export const STARTING_STOCK: Partial<Record<ResourceType, number>> = {
@@ -50,7 +64,7 @@ export function createGame(playerConfigs: PlayerConfig[], rng: Rng = Math.random
     currentPlayerIndex: 0,
     phase: "placement",
     lastRoll: null,
-    log: ["Platzierungsphase: jeder Spieler setzt 3 Armeen."],
+    log: ["Platzierungsphase: jeder Spieler setzt 3 Truppen."],
     bonusRemaining: 0,
     winnerId: null,
     placementQueue,
@@ -78,6 +92,14 @@ export function neighborIds(state: GameState, tileId: string): string[] {
 
 export function ownedTileIds(state: GameState, playerId: string): string[] {
   return state.tileOrder.filter((id) => state.tiles[id].ownerId === playerId);
+}
+
+export function totalUnits(tile: Tile): number {
+  return UNIT_TYPES.reduce((sum, t) => sum + tile.units[t], 0);
+}
+
+export function totalPopulation(tile: Tile): number {
+  return POP_CLASSES.reduce((sum, c) => sum + tile.population[c], 0);
 }
 
 function log(state: GameState, msg: string) {
@@ -110,9 +132,12 @@ export function placeInitialArmy(state: GameState, tileId: string): boolean {
   if (!tile || tile.ownerId !== null) return false;
 
   tile.ownerId = playerId;
-  tile.armies += 1;
-  if (tile.resource) tile.level = 1;
-  log(state, `${getPlayer(state, playerId).name} platziert eine Armee auf ${tileId}.`);
+  tile.units.militia += 1;
+  if (tile.resource) {
+    tile.level = 1;
+    tile.population.slaves = 1;
+  }
+  log(state, `${getPlayer(state, playerId).name} platziert eine Truppe auf ${tileId}.`);
   state.placementIndex += 1;
 
   if (state.placementIndex >= state.placementQueue.length) {
@@ -133,7 +158,7 @@ function beginTurn(state: GameState) {
   if (bonus > 0) {
     state.bonusRemaining = bonus;
     state.phase = "bonus";
-    log(state, `${player.name} erhält ${bonus} Bonusarmee(n) für kontrollierte Kontinente.`);
+    log(state, `${player.name} erhält ${bonus} Bonustruppe(n) für kontrollierte Kontinente.`);
   } else {
     state.bonusRemaining = 0;
     state.phase = "roll";
@@ -146,12 +171,32 @@ export function placeBonusArmy(state: GameState, tileId: string): boolean {
   const tile = state.tiles[tileId];
   if (!tile || tile.ownerId !== player.id) return false;
 
-  tile.armies += 1;
+  tile.units.militia += 1;
   state.bonusRemaining -= 1;
   if (state.bonusRemaining <= 0) {
     state.bonusRemaining = 0;
     state.phase = "roll";
   }
+  return true;
+}
+
+// --- Population growth ---
+
+/** Grows whichever pop class is furthest below its target share, if there's room. */
+function growPopulation(tile: Tile): boolean {
+  const cap = POP_CAPACITY_BY_LEVEL[tile.level] ?? 0;
+  if (totalPopulation(tile) >= cap) return false;
+
+  let bestClass: PopClass = "slaves";
+  let bestDeficit = -Infinity;
+  for (const cls of POP_CLASSES) {
+    const deficit = POP_TARGET_RATIO[cls] * cap - tile.population[cls];
+    if (deficit > bestDeficit) {
+      bestDeficit = deficit;
+      bestClass = cls;
+    }
+  }
+  tile.population[bestClass] += 1;
   return true;
 }
 
@@ -168,11 +213,14 @@ export function rollDice(state: GameState, rng: Rng = Math.random): [number, num
     log(state, `Würfel: ${d1} + ${d2} = 7 — keine Produktion.`);
   } else {
     const gains = new Map<string, Partial<Record<ResourceType, number>>>();
+    const matchedTiles: string[] = [];
     for (const id of state.tileOrder) {
       const tile = state.tiles[id];
       if (tile.number === sum && tile.ownerId && tile.resource && tile.level > 0) {
+        matchedTiles.push(id);
+        const output = tile.level + Math.floor(tile.population.slaves / 2);
         const g = gains.get(tile.ownerId) ?? {};
-        g[tile.resource] = (g[tile.resource] ?? 0) + tile.level;
+        g[tile.resource] = (g[tile.resource] ?? 0) + output;
         gains.set(tile.ownerId, g);
       }
     }
@@ -188,6 +236,19 @@ export function rollDice(state: GameState, rng: Rng = Math.random): [number, num
     if (gains.size === 0) {
       log(state, `Würfel: ${d1} + ${d2} = ${sum} — keine Produktion.`);
     }
+
+    const grown = new Map<string, number>();
+    for (const id of matchedTiles) {
+      const tile = state.tiles[id];
+      const owner = getPlayer(state, tile.ownerId!);
+      if (owner.resources.grain < 1) continue;
+      if (growPopulation(tile)) {
+        grown.set(owner.id, (grown.get(owner.id) ?? 0) + 1);
+      }
+    }
+    for (const [playerId, count] of grown) {
+      log(state, `${getPlayer(state, playerId).name}: Bevölkerung wächst in ${count} Gebiet(en).`);
+    }
   }
 
   state.phase = "build";
@@ -195,26 +256,6 @@ export function rollDice(state: GameState, rng: Rng = Math.random): [number, num
 }
 
 // --- Build phase ---
-
-export function buildCost(kind: "army" | "expand"): Partial<Record<ResourceType, number>> {
-  return kind === "army" ? ARMY_COST : EXPAND_COST;
-}
-
-export function canBuildArmy(state: GameState, tileId: string): boolean {
-  if (state.phase !== "build") return false;
-  const player = currentPlayer(state);
-  const tile = state.tiles[tileId];
-  return !!tile && tile.ownerId === player.id && canAfford(player, ARMY_COST);
-}
-
-export function buildArmy(state: GameState, tileId: string): boolean {
-  if (!canBuildArmy(state, tileId)) return false;
-  const player = currentPlayer(state);
-  pay(player, ARMY_COST);
-  state.tiles[tileId].armies += 1;
-  log(state, `${player.name} baut eine Armee auf ${tileId}.`);
-  return true;
-}
 
 export function canExpand(state: GameState, fromTileId: string, toTileId: string): boolean {
   if (state.phase !== "build") return false;
@@ -233,8 +274,11 @@ export function expand(state: GameState, fromTileId: string, toTileId: string): 
   pay(player, EXPAND_COST);
   const to = state.tiles[toTileId];
   to.ownerId = player.id;
-  to.armies = 1;
-  if (to.resource) to.level = 1;
+  to.units.militia = 1;
+  if (to.resource) {
+    to.level = 1;
+    to.population.slaves = 1;
+  }
   log(state, `${player.name} erschließt ${toTileId}.`);
   return true;
 }
@@ -275,6 +319,26 @@ export function buildFort(state: GameState, tileId: string): boolean {
   return true;
 }
 
+export function canRecruit(state: GameState, tileId: string, unitType: UnitType): boolean {
+  if (state.phase !== "build") return false;
+  const player = currentPlayer(state);
+  const tile = state.tiles[tileId];
+  if (!tile || tile.ownerId !== player.id) return false;
+  if (tile.population[UNIT_SOURCE_CLASS[unitType]] < 1) return false;
+  return canAfford(player, UNIT_COST[unitType]);
+}
+
+export function recruit(state: GameState, tileId: string, unitType: UnitType): boolean {
+  if (!canRecruit(state, tileId, unitType)) return false;
+  const player = currentPlayer(state);
+  const tile = state.tiles[tileId];
+  pay(player, UNIT_COST[unitType]);
+  tile.population[UNIT_SOURCE_CLASS[unitType]] -= 1;
+  tile.units[unitType] += 1;
+  log(state, `${player.name} hebt ${UNIT_LABEL[unitType]} auf ${tileId} aus.`);
+  return true;
+}
+
 export function goToAttackPhase(state: GameState): boolean {
   if (state.phase !== "build") return false;
   state.phase = "attack";
@@ -289,19 +353,52 @@ export function canAttack(state: GameState, fromTileId: string, toTileId: string
   const from = state.tiles[fromTileId];
   const to = state.tiles[toTileId];
   if (!from || !to) return false;
-  if (from.ownerId !== player.id || from.armies < 2) return false;
+  if (from.ownerId !== player.id || totalUnits(from) < 2) return false;
   if (!to.ownerId || to.ownerId === player.id) return false;
   return neighborIds(state, fromTileId).includes(toTileId);
 }
 
-function rollDiceDesc(count: number, rng: Rng): number[] {
-  const rolls = Array.from({ length: count }, () => 1 + Math.floor(rng() * 6));
-  return rolls.sort((a, b) => b - a);
+interface FightingUnit {
+  type: UnitType;
+  power: number;
+}
+
+/** All individual units in `units`, strongest (highest combat power) first. */
+function fightingPool(units: Units): FightingUnit[] {
+  const pool: FightingUnit[] = [];
+  for (const t of UNIT_TYPES) {
+    for (let i = 0; i < units[t]; i++) pool.push({ type: t, power: UNIT_POWER[t] });
+  }
+  return pool.sort((a, b) => b.power - a.power);
+}
+
+interface RolledDie {
+  type: UnitType;
+  roll: number;
+}
+
+/** Commits the strongest available units (up to `count`) and rolls their dice, best roll first. */
+function rollFightingDice(units: Units, count: number, rng: Rng): RolledDie[] {
+  const committed = fightingPool(units).slice(0, count);
+  return committed
+    .map((u) => ({ type: u.type, roll: 1 + Math.floor(rng() * 6) + u.power }))
+    .sort((a, b) => b.roll - a.roll);
+}
+
+/** Removes up to `count` units (strongest first) from `units` in place; returns what was taken. */
+function takeUnits(units: Units, count: number): Units {
+  const taken: Units = { militia: 0, legionary: 0, cavalry: 0 };
+  const pool = fightingPool(units);
+  for (let i = 0; i < count && i < pool.length; i++) {
+    units[pool[i].type] -= 1;
+    taken[pool[i].type] += 1;
+  }
+  return taken;
 }
 
 export interface AttackOutcome {
-  attackerDice: number[];
-  defenderDice: number[];
+  attackerRolls: RolledDie[];
+  defenderRolls: RolledDie[];
   attackerLosses: number;
   defenderLosses: number;
   captured: boolean;
@@ -314,36 +411,37 @@ export function attack(state: GameState, fromTileId: string, toTileId: string, r
   const to = state.tiles[toTileId];
   const defender = getPlayer(state, to.ownerId!);
 
-  const attackerDiceCount = Math.min(from.armies - 1, 3);
-  const defenderDiceCount = Math.min(to.armies, to.hasFort ? 3 : 2);
-  const attackerDice = rollDiceDesc(attackerDiceCount, rng);
-  const defenderDice = rollDiceDesc(defenderDiceCount, rng);
+  const attackerDiceCount = Math.min(totalUnits(from) - 1, 3);
+  const defenderDiceCount = Math.min(totalUnits(to), to.hasFort ? 3 : 2);
+  const attackerRolls = rollFightingDice(from.units, attackerDiceCount, rng);
+  const defenderRolls = rollFightingDice(to.units, defenderDiceCount, rng);
 
   let attackerLosses = 0;
   let defenderLosses = 0;
-  const pairs = Math.min(attackerDice.length, defenderDice.length);
+  const pairs = Math.min(attackerRolls.length, defenderRolls.length);
   for (let i = 0; i < pairs; i++) {
-    if (attackerDice[i] > defenderDice[i]) defenderLosses++;
-    else attackerLosses++;
+    if (attackerRolls[i].roll > defenderRolls[i].roll) {
+      to.units[defenderRolls[i].type] -= 1;
+      defenderLosses++;
+    } else {
+      from.units[attackerRolls[i].type] -= 1;
+      attackerLosses++;
+    }
   }
-
-  from.armies -= attackerLosses;
-  to.armies -= defenderLosses;
 
   let captured = false;
   log(
     state,
     `${attacker.name} greift ${defender.name} von ${fromTileId} auf ${toTileId} an: ` +
-      `[${attackerDice.join(",")}] vs [${defenderDice.join(",")}] — ` +
+      `[${attackerRolls.map((r) => r.roll).join(",")}] vs [${defenderRolls.map((r) => r.roll).join(",")}] — ` +
       `Angreifer verliert ${attackerLosses}, Verteidiger verliert ${defenderLosses}.`
   );
 
-  if (to.armies <= 0) {
+  if (totalUnits(to) <= 0) {
     captured = true;
-    const moved = Math.max(1, Math.min(attackerDiceCount, from.armies - 1));
-    from.armies -= moved;
+    const moved = takeUnits(from.units, Math.max(1, Math.min(attackerDiceCount, totalUnits(from) - 1)));
     to.ownerId = attacker.id;
-    to.armies = moved;
+    to.units = moved;
     log(state, `${attacker.name} erobert ${toTileId}!`);
 
     if (ownedTileIds(state, defender.id).length === 0) {
@@ -354,7 +452,7 @@ export function attack(state: GameState, fromTileId: string, toTileId: string, r
 
   state.hasAttackedThisTurn = true;
   checkWinner(state);
-  return { attackerDice, defenderDice, attackerLosses, defenderLosses, captured };
+  return { attackerRolls, defenderRolls, attackerLosses, defenderLosses, captured };
 }
 
 export function checkWinner(state: GameState): boolean {

@@ -6,8 +6,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>wutz.io/play — Kolonie &amp; Konflikt</title>
-    <meta name="description" content="Browsergame inspiriert von Siedlern und Risiko: Hex-Karte, Rohstoffe, Armeen, Eroberung." />
+    <title>Antikos — wutz.io/antikos-strategy</title>
+    <meta name="description" content="Antikos: rundenbasiertes Aufbau- &amp; Eroberungsspiel im antiken Mittelmeer-Setting. Hex-Karte, Rohstoffe, Bevölkerung, Truppen." />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>" />
     <style>
       :root {
@@ -192,8 +192,8 @@
     </div>
 
     <div id="setup-screen">
-      <h1>⚔️ Kolonie &amp; Konflikt</h1>
-      <p>Siedle Hex-Felder für Rohstoffe, baue Armeen und erobere die Karte — inspiriert von Siedlern von Catan und Risiko. 2–4 Spieler, lokal (Hotseat) oder gegen KI.</p>
+      <h1>⚔️ Antikos</h1>
+      <p>Siedle Hex-Felder im antiken Mittelmeer, baue Bevölkerung und Wirtschaft auf, hebe Truppen aus und erobere die Karte — inspiriert von Siedlern von Catan und Risiko. 2–4 Spieler, lokal (Hotseat) oder gegen KI.</p>
       <label for="player-count">Spieleranzahl</label>
       <select id="player-count">
         <option value="2">2</option>
@@ -216,7 +216,9 @@
           <div id="tile-info"></div>
           <div class="actions">
             <button id="action-roll" class="hidden">Würfeln</button>
-            <button id="action-build-army" class="hidden">Armee bauen (🌾+⛏️)</button>
+            <button id="action-recruit-militia" class="hidden">Miliz ausheben</button>
+            <button id="action-recruit-legionary" class="hidden">Legionäre ausheben</button>
+            <button id="action-recruit-cavalry" class="hidden">Reiterei ausheben</button>
             <button id="action-upgrade" class="hidden">Ausbauen</button>
             <button id="action-fort" class="hidden">Burg bauen</button>
             <button id="action-end-build" class="hidden">Weiter zum Angriff</button>

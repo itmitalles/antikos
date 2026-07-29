@@ -1,11 +1,10 @@
 import {
   attack,
-  buildArmy,
   buildFort,
   canAttack,
-  canBuildArmy,
   canBuildFort,
   canExpand,
+  canRecruit,
   canUpgradeTile,
   currentPlayer,
   endTurn,
@@ -16,17 +15,19 @@ import {
   placeBonusArmy,
   placementCurrentPlayerId,
   placeInitialArmy,
+  recruit,
   rollDice,
+  totalUnits,
   upgradeTile,
 } from "./engine";
 import type { Rng } from "./mapgen";
-import type { GameState } from "./types";
+import { UNIT_TYPES, type GameState, type UnitType } from "./types";
 
 function strongestEnemyNeighborArmies(state: GameState, tileId: string, playerId: string): number {
   let max = 0;
   for (const nId of neighborIds(state, tileId)) {
     const n = state.tiles[nId];
-    if (n.ownerId && n.ownerId !== playerId) max = Math.max(max, n.armies);
+    if (n.ownerId && n.ownerId !== playerId) max = Math.max(max, totalUnits(n));
   }
   return max;
 }
@@ -58,8 +59,8 @@ function weakestBorderTile(state: GameState, playerId: string): string | null {
   const owned = ownedTileIds(state, playerId).filter((id) => hasEnemyNeighbor(state, id, playerId));
   if (owned.length === 0) return null;
   return owned.sort((a, b) => {
-    const da = state.tiles[a].armies - strongestEnemyNeighborArmies(state, a, playerId);
-    const db = state.tiles[b].armies - strongestEnemyNeighborArmies(state, b, playerId);
+    const da = totalUnits(state.tiles[a]) - strongestEnemyNeighborArmies(state, a, playerId);
+    const db = totalUnits(state.tiles[b]) - strongestEnemyNeighborArmies(state, b, playerId);
     return da - db;
   })[0];
 }
@@ -86,17 +87,23 @@ function bestFortMove(state: GameState, playerId: string): string | null {
     (id) => hasEnemyNeighbor(state, id, playerId) && canBuildFort(state, id)
   );
   if (candidates.length === 0) return null;
-  return candidates.sort((a, b) => state.tiles[a].armies - state.tiles[b].armies)[0];
+  return candidates.sort((a, b) => totalUnits(state.tiles[a]) - totalUnits(state.tiles[b]))[0];
+}
+
+/** Recruits the strongest unit type the tile's population and the player's purse allow. */
+function bestRecruitMove(state: GameState, tileId: string): UnitType | null {
+  const preference = [...UNIT_TYPES].reverse(); // cavalry, legionary, militia — strongest first
+  return preference.find((t) => canRecruit(state, tileId, t)) ?? null;
 }
 
 function bestAttackMove(state: GameState, playerId: string): [string, string] | null {
-  const owned = ownedTileIds(state, playerId).filter((id) => state.tiles[id].armies >= 3);
+  const owned = ownedTileIds(state, playerId).filter((id) => totalUnits(state.tiles[id]) >= 3);
   let best: [string, string] | null = null;
   let bestEdge = 0;
   for (const from of owned) {
     for (const to of neighborIds(state, from)) {
       if (!canAttack(state, from, to)) continue;
-      const edge = state.tiles[from].armies - state.tiles[to].armies;
+      const edge = totalUnits(state.tiles[from]) - totalUnits(state.tiles[to]);
       if (edge > bestEdge) {
         bestEdge = edge;
         best = [from, to];
@@ -135,8 +142,9 @@ export function runAiTurn(state: GameState, rng: Rng = Math.random) {
       continue;
     }
     const target = weakestBorderTile(state, player.id) ?? ownedTileIds(state, player.id)[0];
-    if (target && canBuildArmy(state, target)) {
-      buildArmy(state, target);
+    const recruitType = target ? bestRecruitMove(state, target) : null;
+    if (target && recruitType) {
+      recruit(state, target, recruitType);
       continue;
     }
     const fortMove = bestFortMove(state, player.id);

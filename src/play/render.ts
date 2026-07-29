@@ -1,6 +1,14 @@
 import { axialToPixel, hexCorners, pixelToAxial, hexId, hexagonBoard } from "./hex";
 import { BOARD_RADIUS } from "./mapgen";
-import type { GameState, ResourceType, Tile } from "./types";
+import { POP_CLASSES, POP_COLOR, UNIT_TYPES, type GameState, type ResourceType, type Tile } from "./types";
+
+function tileTotalUnits(tile: Tile): number {
+  return UNIT_TYPES.reduce((sum, t) => sum + tile.units[t], 0);
+}
+
+function tileTotalPopulation(tile: Tile): number {
+  return POP_CLASSES.reduce((sum, c) => sum + tile.population[c], 0);
+}
 
 export const HEX_SIZE = 44;
 
@@ -429,6 +437,26 @@ function drawArmyBadge(ctx: CanvasRenderingContext2D, cx: number, cy: number, si
   ctx.fillText(String(armies), x, y + size * 0.01);
 }
 
+function drawPopulationBar(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, tile: Tile) {
+  const total = tileTotalPopulation(tile);
+  if (total === 0) return;
+  const y = cy + size * 0.4;
+  const w = size * 0.66;
+  const h = Math.max(2, size * 0.08);
+  let x = cx - w / 2;
+  ctx.strokeStyle = "#00000055";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(cx - w / 2 - 0.5, y - 0.5, w + 1, h + 1);
+  for (const cls of POP_CLASSES) {
+    const count = tile.population[cls];
+    if (count === 0) continue;
+    const segW = (count / total) * w;
+    ctx.fillStyle = POP_COLOR[cls];
+    ctx.fillRect(x, y, segW, h);
+    x += segW;
+  }
+}
+
 // --- Main draw --------------------------------------------------------
 
 export interface DrawOptions {
@@ -486,8 +514,12 @@ function drawTile(ctx: CanvasRenderingContext2D, state: GameState, tile: Tile, l
   if (tile.number !== null) {
     drawNumberToken(ctx, cx, cy, size, tile.number);
   }
-  if (tile.armies > 0) {
-    drawArmyBadge(ctx, cx, cy, size, tile.armies, owner?.color ?? "#888");
+  if (owner) {
+    drawPopulationBar(ctx, cx, cy, size, tile);
+  }
+  const units = tileTotalUnits(tile);
+  if (units > 0) {
+    drawArmyBadge(ctx, cx, cy, size, units, owner?.color ?? "#888");
   }
 }
 

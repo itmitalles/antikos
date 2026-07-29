@@ -1,12 +1,11 @@
 import { aiPlacementMove, runAiTurn } from "./ai";
 import {
   attack,
-  buildArmy,
   buildFort,
   canAttack,
-  canBuildArmy,
   canBuildFort,
   canExpand,
+  canRecruit,
   canUpgradeTile,
   createGame,
   currentPlayer,
@@ -18,22 +17,33 @@ import {
   placeBonusArmy,
   placementCurrentPlayerId,
   placeInitialArmy,
+  recruit,
   rollDice,
+  totalPopulation,
+  totalUnits,
   upgradeTile,
   type PlayerConfig,
 } from "./engine";
 import { computeLayout, drawBoard, pixelToTileId, type Layout } from "./render";
 import { PLAYER_COLORS } from "./engine";
 import {
-  ARMY_COST,
   BUILDING_NAMES,
   FORT_COST,
   MAX_TILE_LEVEL,
+  POP_CLASSES,
+  POP_ICON,
+  POP_LABEL,
   RESOURCE_ICON,
   RESOURCE_LABEL,
   RESOURCE_TYPES,
+  UNIT_COST,
+  UNIT_ICON,
+  UNIT_LABEL,
+  UNIT_SOURCE_CLASS,
+  UNIT_TYPES,
   upgradeCost,
   type ResourceType,
+  type UnitType,
 } from "./types";
 import type { GameState } from "./types";
 
@@ -56,7 +66,11 @@ const hint = $("action-hint");
 const tileInfo = $("tile-info");
 
 const rollBtn = $<HTMLButtonElement>("action-roll");
-const buildArmyBtn = $<HTMLButtonElement>("action-build-army");
+const recruitBtns: Record<UnitType, HTMLButtonElement> = {
+  militia: $<HTMLButtonElement>("action-recruit-militia"),
+  legionary: $<HTMLButtonElement>("action-recruit-legionary"),
+  cavalry: $<HTMLButtonElement>("action-recruit-cavalry"),
+};
 const upgradeBtn = $<HTMLButtonElement>("action-upgrade");
 const fortBtn = $<HTMLButtonElement>("action-fort");
 const endBuildBtn = $<HTMLButtonElement>("action-end-build");
@@ -157,7 +171,26 @@ function renderTileInfo() {
   }
   if (owner) parts.push(`Besitzer: ${owner.name}`);
   if (tile.hasFort) parts.push("🏰 befestigt");
-  tileInfo.innerHTML = parts.join(" · ");
+
+  const lines = [parts.join(" · ")];
+
+  const pop = totalPopulation(tile);
+  if (pop > 0) {
+    const popParts = POP_CLASSES.filter((c) => tile.population[c] > 0).map(
+      (c) => `${POP_ICON[c]} ${tile.population[c]} ${POP_LABEL[c]}`
+    );
+    lines.push(`Bevölkerung (${pop}): ${popParts.join(", ")}`);
+  }
+
+  const units = totalUnits(tile);
+  if (units > 0) {
+    const unitParts = UNIT_TYPES.filter((t) => tile.units[t] > 0).map(
+      (t) => `${UNIT_ICON[t]} ${tile.units[t]} ${UNIT_LABEL[t]}`
+    );
+    lines.push(`Truppen (${units}): ${unitParts.join(", ")}`);
+  }
+
+  tileInfo.innerHTML = lines.map((l) => `<div>${l}</div>`).join("");
 }
 
 function render() {
@@ -184,10 +217,10 @@ function render() {
   playersPanel.innerHTML = state.players
     .map((p) => {
       const tiles = ownedTileIds(state, p.id);
-      const armies = tiles.reduce((s, id) => s + state.tiles[id].armies, 0);
+      const armies = tiles.reduce((s, id) => s + totalUnits(state.tiles[id]), 0);
       const dead = !p.alive && state.phase !== "placement";
       return `<div class="player-chip ${dead ? "dead" : ""}" style="--pcolor:${p.color}">
-        <span class="swatch"></span>${p.name} · ${tiles.length} Gebiete · ${armies} Armeen${dead ? " · ausgeschieden" : ""}
+        <span class="swatch"></span>${p.name} · ${tiles.length} Gebiete · ${armies} Truppen${dead ? " · ausgeschieden" : ""}
       </div>`;
     })
     .join("");
@@ -233,13 +266,13 @@ function updateHint() {
       break;
     case "build":
       hint.textContent = selectedTileId
-        ? "Feld ausgewählt: 'Armee bauen' oder gelb markiertes Nachbarfeld für Erschließung klicken."
-        : "Wähle ein eigenes Feld, um zu bauen oder zu erschließen.";
+        ? "Feld ausgewählt: Truppen ausheben/ausbauen/Burg bauen, oder gelb markiertes Nachbarfeld für Erschließung klicken."
+        : "Wähle ein eigenes Feld, um zu bauen, auszubauen oder Truppen auszuheben.";
       break;
     case "attack":
       hint.textContent = selectedTileId
         ? "Klicke ein gelb markiertes Gegnerfeld zum Angreifen."
-        : "Wähle ein eigenes Feld mit ≥2 Armeen, um anzugreifen.";
+        : "Wähle ein eigenes Feld mit ≥2 Truppen, um anzugreifen.";
       break;
     case "gameover":
       hint.textContent = "";
@@ -254,9 +287,12 @@ function updateButtons() {
 
   rollBtn.classList.toggle("hidden", !(isHuman && state.phase === "roll"));
 
-  buildArmyBtn.classList.toggle("hidden", !inBuild);
-  buildArmyBtn.textContent = `Armee bauen (${costLabel(ARMY_COST)})`;
-  buildArmyBtn.disabled = !(selectedTileId && canBuildArmy(state, selectedTileId));
+  for (const unitType of UNIT_TYPES) {
+    const btn = recruitBtns[unitType];
+    btn.classList.toggle("hidden", !inBuild);
+    btn.textContent = `${UNIT_LABEL[unitType]} ausheben (${costLabel(UNIT_COST[unitType])}, 1${POP_ICON[UNIT_SOURCE_CLASS[unitType]]})`;
+    btn.disabled = !(selectedTileId && canRecruit(state, selectedTileId, unitType));
+  }
 
   upgradeBtn.classList.toggle("hidden", !inBuild);
   const tile = selectedTileId ? state.tiles[selectedTileId] : null;
@@ -281,12 +317,14 @@ rollBtn.addEventListener("click", () => {
   render();
 });
 
-buildArmyBtn.addEventListener("click", () => {
-  if (selectedTileId) {
-    buildArmy(state, selectedTileId);
-    render();
-  }
-});
+for (const unitType of UNIT_TYPES) {
+  recruitBtns[unitType].addEventListener("click", () => {
+    if (selectedTileId) {
+      recruit(state, selectedTileId, unitType);
+      render();
+    }
+  });
+}
 
 upgradeBtn.addEventListener("click", () => {
   if (selectedTileId) {
@@ -363,13 +401,13 @@ function handleTileClick(tileId: string) {
     if (selectedTileId && canAttack(state, selectedTileId, tileId)) {
       const from = state.tiles[selectedTileId];
       attack(state, selectedTileId, tileId, Math.random);
-      if (from.armies < 2 || from.ownerId !== me) {
+      if (totalUnits(from) < 2 || from.ownerId !== me) {
         selectedTileId = null;
       }
       render();
       return;
     }
-    if (tile.ownerId === me && tile.armies >= 2) {
+    if (tile.ownerId === me && totalUnits(tile) >= 2) {
       selectedTileId = tileId;
       render();
     }
