@@ -1,81 +1,81 @@
 # wutz.io
 
-Meinungs-/Kommentarseite: aggregiert reale Tagesschlagzeilen (RSS) und lässt Claude dazu
-reißerisch formulierte, aber quellentreue Kommentar-Artikel schreiben. Kein Artikel geht
-automatisch live — jeder Entwurf landet als GitHub-PR, den ein Mensch freigeben muss.
+Opinion and commentary site: it aggregates real daily news headlines (RSS) and has Claude
+write sensationally worded but source-faithful commentary articles. No article goes live
+automatically — every draft becomes a GitHub PR that must be approved by a human.
 
-## Wie das Ganze funktioniert
+## How It Works
 
-1. Ein GitHub-Actions-Cronjob (`.github/workflows/generate-article.yml`, alle 6h) läuft
+1. A GitHub Actions cron job (`.github/workflows/generate-article.yml`, every six hours) runs
    `scripts/generate-article.mjs`.
-2. Das Skript holt Schlagzeilen aus konfigurierten RSS-Feeds (Google News, aktuell Top-News,
-   Promis/Klatsch, Politik — Liste in `FEEDS` im Skript), überspringt bereits verarbeitete
-   Links und wählt die erste neue Schlagzeile.
-3. Claude (`claude-opus-4-8`) bekommt **nur** Titel, Kurzbeschreibung und Link dieser einen
-   Meldung als Faktengrundlage — Systemprompt verbietet erfundene Zitate/Fakten explizit und
-   verlangt klare Kennzeichnung von Meinung/Kommentar.
-4. Ergebnis wird als Markdown-Datei unter `src/data/articles/` geschrieben, committet, gepusht
-   und als Pull Request geöffnet.
-5. Ein Telegram-Bot schickt dir den PR-Link.
-6. Du prüfst den Entwurf auf GitHub (Diff lesen reicht meist) und **merged** — erst der Merge
-   auf `main` macht den Artikel live (Vercel/Netlify/Cloudflare Pages deployen automatisch bei
-   Push auf `main`).
+2. The script fetches headlines from configured RSS feeds (Google News, current top news,
+   celebrity news, and politics — see the `FEEDS` list), skips links that have already been
+   processed, and selects the first new headline.
+3. Claude (`claude-opus-4-8`) receives **only** the title, short description, and link of that
+   report as its factual basis. The system prompt explicitly prohibits invented quotes or facts
+   and requires opinion/commentary to be clearly labeled.
+4. The result is written as a Markdown file under `src/data/articles/`, committed, pushed, and
+   opened as a pull request.
+5. A Telegram bot sends you the PR link.
+6. You review the draft on GitHub (usually, reading the diff is enough) and **merge** it — only
+   a merge to `main` makes the article live (Vercel, Netlify, or Cloudflare Pages deploys
+   automatically on pushes to `main`).
 
 ## Setup
 
-### 1. Secrets in GitHub hinterlegen
+### 1. Add GitHub secrets
 
 Repo → Settings → Secrets and variables → Actions:
 
-| Secret | Wofür |
+| Secret | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Claude-API-Key (platform.claude.com) |
-| `TELEGRAM_BOT_TOKEN` | Bot-Token von [@BotFather](https://t.me/BotFather) (`/newbot`) |
-| `TELEGRAM_CHAT_ID` | Deine Chat-ID (z.B. via [@userinfobot](https://t.me/userinfobot) rausfinden, oder dem Bot schreiben und `https://api.telegram.org/bot<TOKEN>/getUpdates` abrufen) |
+| `ANTHROPIC_API_KEY` | Claude API key (platform.claude.com) |
+| `TELEGRAM_BOT_TOKEN` | Bot token from [@BotFather](https://t.me/BotFather) (`/newbot`) |
+| `TELEGRAM_CHAT_ID` | Your chat ID (for example, find it through [@userinfobot](https://t.me/userinfobot), send a message to the bot, or retrieve it from `https://api.telegram.org/bot<TOKEN>/getUpdates`) |
 
-`GITHUB_TOKEN` braucht ihr nicht selbst setzen — der Workflow nutzt automatisch
-`${{ github.token }}`, das reicht für Branch-Push + PR-Erstellung in diesem Repo.
+You do not need to set `GITHUB_TOKEN` yourself — the workflow uses `${{ github.token }}`
+automatically, which is sufficient for pushing a branch and opening a PR in this repository.
 
-### 2. Hosting anschließen (Vercel/Netlify/Cloudflare Pages)
+### 2. Connect hosting (Vercel/Netlify/Cloudflare Pages)
 
-Framework-Preset erkennt Astro automatisch (Build-Command `npm run build`,
-Output-Verzeichnis `dist`). Repo im gewählten Anbieter importieren, fertig — jeder Push auf
-`main` deployed automatisch.
+The framework preset detects Astro automatically (build command `npm run build`, output
+directory `dist`). Import the repository into your chosen provider; every push to `main` will
+then deploy automatically.
 
 ### 3. Domain
 
-`www.wutz.io` beim jeweiligen Hosting-Anbieter als Custom Domain eintragen, DNS beim
-Registrar entsprechend setzen (CNAME/A je nach Anbieter-Anleitung).
+Add `www.wutz.io` as a custom domain with the hosting provider and configure the corresponding
+DNS records with the registrar (CNAME/A, according to the provider's instructions).
 
-### 4. Erster Testlauf
+### 4. First test run
 
-Nach dem Secrets-Setup: Actions-Tab → "Generate article draft" → "Run workflow" (manueller
-Trigger, unabhängig vom 6h-Cron). Das ist gleichzeitig der End-to-End-Test der ganzen Kette.
+After configuring the secrets: open the Actions tab → "Generate article draft" → "Run workflow"
+(manual trigger, independent of the six-hour cron). This is also the end-to-end test for the
+entire pipeline.
 
-## Lokale Entwicklung
+## Local Development
 
 ```sh
 npm install
-npm run dev        # Astro Dev-Server
-npm run build       # Type-Check + Production-Build nach dist/
-ANTHROPIC_API_KEY=... npm run generate-article   # Pipeline manuell einmal laufen lassen
+npm run dev        # Astro development server
+npm run build      # Type-check + production build into dist/
+ANTHROPIC_API_KEY=... npm run generate-article   # Run the pipeline once manually
 ```
 
-## Rechtliches — vor dem ersten echten Besucher erledigen
+## Legal — Complete Before the First Real Visitor
 
-- **Impressum** (`src/pages/impressum.astro`): aktuell nur ein Platzhalter mit TODO-Hinweis.
-  Nach § 5 DDG (ex-TMG) Pflicht für praktisch jede in Deutschland betriebene Website.
-- **Datenschutzerklärung**: fehlt komplett. Pflicht (Art. 13 DSGVO) sobald Analytics,
-  Werbenetzwerke (z.B. AdSense) oder Cookies eingebunden werden — und genau das ist ja der
-  Plan für die Monetarisierung.
-- **Ad-Netzwerk-Policy**: Google AdSense & Co. haben seit 2024 explizite Regeln gegen
-  "Scaled Content Abuse" (massenhaft automatisiert generierte Inhalte ohne redaktionellen
-  Mehrwert). Der PR-Review-Schritt ist nicht nur Qualitätskontrolle, sondern auch Schutz vor
-  Deindexierung/Sperre — nicht blind durchwinken.
+- **Legal notice** (`src/pages/impressum.astro`): currently a placeholder with a TODO. Section
+  5 DDG (formerly TMG) requires this for practically every website operated in Germany.
+- **Privacy policy**: completely missing. Required under Article 13 GDPR once analytics, ad
+  networks (such as AdSense), or cookies are used — and that is the monetization plan.
+- **Ad network policy**: since 2024, Google AdSense and similar services have explicit rules
+  against "Scaled Content Abuse" (large amounts of automatically generated content without
+  editorial value). The PR review step is not just quality control; it also helps protect
+  against de-indexing or suspension — do not approve drafts blindly.
 
-## Content-Modell — die Leitplanke
+## Content Model — The Guardrails
 
-Der Systemprompt in `scripts/generate-article.mjs` ist die zentrale Stelle, die verhindert,
-dass hier ein Fake-News-/Rufschädigungs-Generator draus wird: nur Fakten aus der
-RSS-Quelle, keine erfundenen Zitate/Handlungen über echte Personen, Meinung klar als Meinung
-gekennzeichnet. Beim Anpassen des Prompts diese drei Punkte nicht aufweichen.
+The system prompt in `scripts/generate-article.mjs` is the central safeguard against turning
+this into a fake-news or defamation generator: use only facts from the RSS source, do not
+invent quotes or actions involving real people, and clearly label opinions as opinions. Do not
+weaken these three principles when adjusting the prompt.
