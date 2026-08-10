@@ -1,5 +1,12 @@
 # wutz.io
 
+**Archived 2026-08-11.** The article-generation pipeline was stopped intentionally; this
+repo is kept read-only for reference. See
+[`wutz-io/notes/docs/wutz.io.md`](https://github.com/wutz-io/notes/blob/main/docs/wutz.io.md)
+for what it was and why it was retired.
+
+---
+
 Opinion and commentary site: it aggregates real daily news headlines (RSS) and has Claude
 write sensationally worded but source-faithful commentary articles. No article goes live
 automatically — every draft becomes a GitHub PR that must be approved by a human.
