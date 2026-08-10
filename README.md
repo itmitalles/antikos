@@ -4,6 +4,15 @@ Opinion and commentary site: it aggregates real daily news headlines (RSS) and h
 write sensationally worded but source-faithful commentary articles. No article goes live
 automatically — every draft becomes a GitHub PR that must be approved by a human.
 
+## Repository scope
+
+This repository contains the website, game code, and their directly required assets and
+developer instructions. Durable project documentation lives in the central Obsidian vault
+at [`wutz-io/notes/docs`](https://github.com/wutz-io/notes/tree/main/docs), including the
+[Antikos art-prompt catalogue](https://github.com/wutz-io/notes/tree/main/docs/games).
+Actionable follow-up work belongs in [`wutz-io/ai-todo`](https://github.com/wutz-io/ai-todo)
+Issues.
+
 ## How It Works
 
 1. A GitHub Actions cron job (`.github/workflows/generate-article.yml`, every six hours) runs
