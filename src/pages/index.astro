@@ -139,6 +139,7 @@
 
       // ---- bouncing "WUTZ!" logo, DVD-screensaver style, but stepped/snapped to the pixel grid ----
       const TEXT = "WUTZ!";
+      const ROTATION_PERIOD = 32; // seconds for one unhurried full turn
       let colorIdx = 0;
 
       function pickFontSize() {
@@ -162,6 +163,12 @@
         setFont();
         const m = ctx.measureText(TEXT);
         return { w: m.width, h: logo.fontSize };
+      }
+
+      function rotatedBounds(w, h, angle) {
+        const cos = Math.abs(Math.cos(angle));
+        const sin = Math.abs(Math.sin(angle));
+        return { w: w * cos + h * sin, h: w * sin + h * cos };
       }
 
       function bumpColor() {
@@ -259,12 +266,16 @@
         logo.y += logo.vy * dt;
 
         const { w, h } = measure();
+        const angle = (now / 1000 / ROTATION_PERIOD) * Math.PI * 2;
+        const bounds = rotatedBounds(w, h, angle);
         let bounced = false;
 
-        if (logo.x <= 0) { logo.x = 0; logo.vx *= -1; bounced = true; }
-        if (logo.x + w >= bw) { logo.x = bw - w; logo.vx *= -1; bounced = true; }
-        if (logo.y - h <= 0) { logo.y = h; logo.vy *= -1; bounced = true; }
-        if (logo.y >= bh) { logo.y = bh; logo.vy *= -1; bounced = true; }
+        const horizontalInset = (bounds.w - w) / 2;
+        const verticalInset = (bounds.h - h) / 2;
+        if (logo.x - horizontalInset <= 0) { logo.x = horizontalInset; logo.vx *= -1; bounced = true; }
+        if (logo.x + w + horizontalInset >= bw) { logo.x = bw - w - horizontalInset; logo.vx *= -1; bounced = true; }
+        if (logo.y - h - verticalInset <= 0) { logo.y = h + verticalInset; logo.vy *= -1; bounced = true; }
+        if (logo.y + verticalInset >= bh) { logo.y = bh - verticalInset; logo.vy *= -1; bounced = true; }
 
         if (bounced) {
           bumpColor();
@@ -293,12 +304,16 @@
         setFont();
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(angle);
         ctx.fillStyle = "#000";
-        ctx.fillText(TEXT, sx + 2, sy + 2);
+        ctx.fillText(TEXT, 2, 2);
         ctx.fillStyle = paletteColor(colorIdx);
-        ctx.fillText(TEXT, sx, sy);
+        ctx.fillText(TEXT, 0, 0);
         ctx.fillStyle = "#fff";
-        ctx.fillText(TEXT, sx, sy - 1);
+        ctx.fillText(TEXT, 0, -1);
+        ctx.restore();
 
         applyGlitch();
 
