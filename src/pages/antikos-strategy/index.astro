@@ -1,4 +1,5 @@
 ---
+const base = import.meta.env.BASE_URL;
 ---
 
 <!doctype html>
@@ -6,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Antikos — wutz.io/antikos-strategy</title>
+    <title>Antikos — rundenbasiertes Zivilisationsspiel</title>
     <meta name="description" content="Antikos: rundenbasiertes Zivilisationsspiel mit großer Hexwelt, Städten, Straßen, Flüssen und sichtbaren Ressourcen." />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>" />
     <style>
@@ -212,8 +213,8 @@
   </head>
   <body>
     <div class="topbar">
-      <a class="brand" href="/">wutz<span>.io</span></a>
-      <a href="/">← zur Startseite</a>
+      <a class="brand" href={`${base}/`}>Antik<span>os</span></a>
+      <a href={`${base}/`}>← zur Startseite</a>
     </div>
 
     <div id="setup-screen">

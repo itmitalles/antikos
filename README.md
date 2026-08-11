@@ -1,9 +1,8 @@
 # Antikos
 
-Full-screen "WUTZ!" animation (DVD-screensaver-style bouncing logo, posterized plasma
-background, confetti on click/tap) plus the [Antikos](src/pages/antikos-strategy) hex
-strategy game. Astro site, deployed via GitHub Pages on every push to `main`
-(`.github/workflows/pages.yml`), custom domain `www.wutz.io`.
+Antikos is a browser-based hex strategy game. The Astro site deploys to GitHub
+Pages on every push to `main` (`.github/workflows/pages.yml`) at
+https://itmitalles.github.io/antikos/.
 
 ## Local development
 
