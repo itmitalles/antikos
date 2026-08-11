@@ -16,7 +16,6 @@ import {
   placementCurrentPlayerId,
   placeInitialArmy,
   recruit,
-  rollDice,
   totalUnits,
   upgradeTile,
 } from "./engine";
@@ -44,6 +43,8 @@ export function aiPlacementMove(state: GameState): boolean {
   const playerId = placementCurrentPlayerId(state);
   if (!playerId) return false;
   const owned = ownedTileIds(state, playerId);
+  const player = state.players.find((candidate) => candidate.id === playerId);
+  if (owned.length === 0 && player?.capitalId) return placeInitialArmy(state, player.capitalId);
   const free = state.tileOrder.filter((id) => state.tiles[id].ownerId === null);
   if (free.length === 0) return false;
 
@@ -123,10 +124,6 @@ export function runAiTurn(state: GameState, rng: Rng = Math.random) {
     const target = weakestBorderTile(state, player.id) ?? ownedTileIds(state, player.id)[0];
     if (!target) break;
     placeBonusArmy(state, target);
-  }
-
-  if (state.phase === "roll") {
-    rollDice(state, rng);
   }
 
   guard = 0;

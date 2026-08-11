@@ -2,23 +2,29 @@ import { aiPlacementMove, runAiTurn } from "./ai";
 import {
   attack,
   buildFort,
+  buildCityBuilding,
   canAttack,
   canBuildFort,
+  canBuildCityBuilding,
   canExpand,
+  canFoundSettlement,
+  confirmRoad,
   canRecruit,
   canUpgradeTile,
   createGame,
   currentPlayer,
   endTurn,
   expand,
+  foundSettlement,
   goToAttackPhase,
   neighborIds,
   ownedTileIds,
   placeBonusArmy,
   placementCurrentPlayerId,
   placeInitialArmy,
+  planRoad,
+  cancelRoadPlan,
   recruit,
-  rollDice,
   totalPopulation,
   totalUnits,
   upgradeTile,
@@ -28,6 +34,7 @@ import { computeLayout, drawBoard, pixelToTileId, type Layout } from "./render";
 import { PLAYER_COLORS } from "./engine";
 import {
   BUILDING_NAMES,
+  CITY_BUILDING_LABEL,
   FORT_COST,
   MAX_TILE_LEVEL,
   POP_CLASSES,
@@ -36,6 +43,7 @@ import {
   RESOURCE_ICON,
   RESOURCE_LABEL,
   RESOURCE_TYPES,
+  TERRAIN_LABEL,
   UNIT_COST,
   UNIT_ICON,
   UNIT_LABEL,
@@ -43,6 +51,7 @@ import {
   UNIT_TYPES,
   upgradeCost,
   type ResourceType,
+  type CityBuilding,
   type UnitType,
 } from "./types";
 import type { GameState } from "./types";
@@ -57,15 +66,22 @@ const startButton = $<HTMLButtonElement>("start-button");
 
 const canvas = $<HTMLCanvasElement>("board-canvas");
 const ctx = canvas.getContext("2d")!;
+const zoomOutBtn = $<HTMLButtonElement>("camera-zoom-out");
+const zoomInBtn = $<HTMLButtonElement>("camera-zoom-in");
+const cameraResetBtn = $<HTMLButtonElement>("camera-reset");
 const turnInfo = $("turn-info");
-const diceDisplay = $("dice-display");
 const resourcePanel = $("resource-panel");
 const playersPanel = $("players-panel");
 const logPanel = $("log-panel");
 const hint = $("action-hint");
 const tileInfo = $("tile-info");
 
-const rollBtn = $<HTMLButtonElement>("action-roll");
+const foundSettlementBtn = $<HTMLButtonElement>("action-found-settlement");
+const roadPlanBtn = $<HTMLButtonElement>("action-road-plan");
+const roadConfirmBtn = $<HTMLButtonElement>("action-road-confirm");
+const roadCancelBtn = $<HTMLButtonElement>("action-road-cancel");
+const cityBuildingSelect = $<HTMLSelectElement>("city-building-select");
+const cityBuildingBtn = $<HTMLButtonElement>("action-city-building");
 const recruitBtns: Record<UnitType, HTMLButtonElement> = {
   militia: $<HTMLButtonElement>("action-recruit-militia"),
   legionary: $<HTMLButtonElement>("action-recruit-legionary"),
@@ -83,6 +99,25 @@ const restartButton = $<HTMLButtonElement>("restart-button");
 let state: GameState;
 let layout: Layout;
 let selectedTileId: string | null = null;
+let renderScale = 1;
+let roadMode = false;
+let settlementMode = false;
+let cameraZoom = 1;
+let cameraPanX = 0;
+let cameraPanY = 0;
+let pointerStart: { x: number; y: number; panX: number; panY: number } | null = null;
+let dragged = false;
+
+function applyCamera() {
+  canvas.style.transform = `translate(${cameraPanX}px, ${cameraPanY}px) scale(${1.08 * cameraZoom})`;
+}
+
+function resetCamera() {
+  cameraZoom = 1;
+  cameraPanX = 0;
+  cameraPanY = 0;
+  applyCamera();
+}
 
 function renderPlayerRows() {
   const count = Number(playerCountSelect.value);
@@ -122,9 +157,16 @@ restartButton.addEventListener("click", () => {
 function startGame(configs: PlayerConfig[]) {
   state = createGame(configs, Math.random);
   layout = computeLayout();
-  canvas.width = layout.width;
-  canvas.height = layout.height;
+  renderScale = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  canvas.width = Math.round(layout.width * renderScale);
+  canvas.height = Math.round(layout.height * renderScale);
+  canvas.style.width = `${layout.width}px`;
+  canvas.style.height = `${layout.height}px`;
+  ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
   selectedTileId = null;
+  roadMode = false;
+  settlementMode = false;
+  resetCamera();
   setupScreen.classList.add("hidden");
   gameoverBanner.classList.add("hidden");
   gameScreen.classList.remove("hidden");
@@ -134,6 +176,11 @@ function startGame(configs: PlayerConfig[]) {
 
 function legalTargets(): Set<string> {
   if (!selectedTileId) return new Set();
+  if (state.phase === "placement") {
+    const pid = placementCurrentPlayerId(state);
+    const player = state.players.find((p) => p.id === pid);
+    return player?.capitalId ? new Set([player.capitalId]) : new Set();
+  }
   if (state.phase === "build") {
     return new Set(neighborIds(state, selectedTileId).filter((id) => state.tiles[id].ownerId === null));
   }
@@ -147,6 +194,10 @@ function legalTargets(): Set<string> {
     );
   }
   return new Set();
+}
+
+function hasSettlementTarget(): boolean {
+  return state.tileOrder.some((id) => canFoundSettlement(state, id));
 }
 
 function costLabel(cost: Partial<Record<ResourceType, number>>): string {
@@ -163,6 +214,7 @@ function renderTileInfo() {
   const tile = state.tiles[selectedTileId];
   const owner = tile.ownerId ? state.players.find((p) => p.id === tile.ownerId) : null;
   const parts: string[] = [`<strong>${selectedTileId}</strong>`];
+  parts.push(TERRAIN_LABEL[tile.terrain]);
   if (tile.resource) {
     const name = tile.level > 0 ? BUILDING_NAMES[tile.resource][tile.level - 1] : RESOURCE_LABEL[tile.resource];
     parts.push(`${name}${tile.level > 0 ? ` (Stufe ${tile.level}/${MAX_TILE_LEVEL})` : ""}`);
@@ -171,8 +223,13 @@ function renderTileInfo() {
   }
   if (owner) parts.push(`Besitzer: ${owner.name}`);
   if (tile.hasFort) parts.push("🏰 befestigt");
+  if (tile.isCapital) parts.push("🏰 Hauptstadt — 4 Bauplätze · Wunder");
+  const city = tile.cityId ? state.cities[tile.cityId] : null;
+  if (city) parts.push(`${city.kind === "capital" ? "Hauptstadt" : "Siedlung"} Stufe ${city.level}`);
 
   const lines = [parts.join(" · ")];
+  if (city) lines.push(`Gebäude: ${city.buildings.map((building) => CITY_BUILDING_LABEL[building]).join(", ")}`);
+  if (state.roadPlan) lines.push(`Straßenauftrag: ${state.roadPlan.segments} Segmente · ${state.roadPlan.turns} Runden · ${costLabel(state.roadPlan.cost)}`);
 
   const pop = totalPopulation(tile);
   if (pop > 0) {
@@ -208,8 +265,6 @@ function render() {
   const player = currentPlayer(state);
   turnInfo.innerHTML = `<span class="dot" style="background:${player.color}"></span> ${player.name} — ${phaseLabel(state.phase)}`;
 
-  diceDisplay.textContent = state.lastRoll ? `🎲 ${state.lastRoll[0]} + ${state.lastRoll[1]} = ${state.lastRoll[0] + state.lastRoll[1]}` : "";
-
   resourcePanel.innerHTML = RESOURCE_TYPES.map(
     (r) => `<span class="res">${RESOURCE_ICON[r]} ${player.resources[r]}</span>`
   ).join("");
@@ -219,8 +274,9 @@ function render() {
       const tiles = ownedTileIds(state, p.id);
       const armies = tiles.reduce((s, id) => s + totalUnits(state.tiles[id]), 0);
       const dead = !p.alive && state.phase !== "placement";
+      const capital = p.capitalId && state.tiles[p.capitalId]?.ownerId === p.id ? " · 🏰 Hauptstadt" : "";
       return `<div class="player-chip ${dead ? "dead" : ""}" style="--pcolor:${p.color}">
-        <span class="swatch"></span>${p.name} · ${tiles.length} Gebiete · ${armies} Truppen${dead ? " · ausgeschieden" : ""}
+        <span class="swatch"></span>${p.name} · ${tiles.length} Gebiete · ${armies} Truppen${capital}${dead ? " · ausgeschieden" : ""}
       </div>`;
     })
     .join("");
@@ -240,7 +296,6 @@ function phaseLabel(phase: GameState["phase"]): string {
   switch (phase) {
     case "placement": return "Platzierung";
     case "bonus": return `Bonusarmeen platzieren (${state.bonusRemaining} übrig)`;
-    case "roll": return "Würfeln";
     case "build": return "Bauen";
     case "attack": return "Angriff";
     case "gameover": return "Spiel beendet";
@@ -256,18 +311,17 @@ function updateHint() {
   }
   switch (state.phase) {
     case "placement":
-      hint.textContent = "Klicke ein freies Feld, um eine Armee zu platzieren.";
+      hint.textContent = "Dein erstes Feld ist die markierte Hauptstadt; danach setzt du weitere Armeen auf freie Felder.";
       break;
     case "bonus":
       hint.textContent = "Klicke ein eigenes Feld, um die Bonusarmee zu platzieren.";
       break;
-    case "roll":
-      hint.textContent = "Würfle, um Rohstoffe zu produzieren.";
-      break;
     case "build":
-      hint.textContent = selectedTileId
-        ? "Feld ausgewählt: Truppen ausheben/ausbauen/Burg bauen, oder gelb markiertes Nachbarfeld für Erschließung klicken."
-        : "Wähle ein eigenes Feld, um zu bauen, auszubauen oder Truppen auszuheben.";
+      hint.textContent = settlementMode
+        ? "Wähle ein freies Feld neben deinem Gebiet für die neue Siedlung."
+        : roadMode
+        ? (selectedTileId ? "Wähle ein eigenes Zielfeld für die Straßenroute." : "Wähle den Startort der Straße.")
+        : (selectedTileId ? "Feld ausgewählt: Stadtgebäude, Siedlung, Ausbau oder Straßenplanung stehen bereit." : "Wähle ein eigenes Feld oder ein freies Nachbarfeld für eine neue Siedlung.");
       break;
     case "attack":
       hint.textContent = selectedTileId
@@ -285,7 +339,20 @@ function updateButtons() {
   const isHuman = player.kind === "human";
   const inBuild = isHuman && state.phase === "build";
 
-  rollBtn.classList.toggle("hidden", !(isHuman && state.phase === "roll"));
+  foundSettlementBtn.classList.toggle("hidden", !inBuild);
+  foundSettlementBtn.textContent = settlementMode ? "Siedlungsort wählen …" : "Siedlung gründen";
+  foundSettlementBtn.disabled = !settlementMode && !hasSettlementTarget();
+  roadPlanBtn.classList.toggle("hidden", !inBuild || roadMode || settlementMode || !!state.roadPlan);
+  roadPlanBtn.disabled = !selectedTileId;
+  roadConfirmBtn.classList.toggle("hidden", !inBuild || !state.roadPlan);
+  roadConfirmBtn.disabled = !!state.roadPlan && !Object.entries(state.roadPlan.cost).every(([res, amount]) => player.resources[res as ResourceType] >= (amount ?? 0));
+  roadCancelBtn.classList.toggle("hidden", !inBuild || (!roadMode && !settlementMode && !state.roadPlan));
+
+  cityBuildingSelect.classList.toggle("hidden", !inBuild);
+  cityBuildingBtn.classList.toggle("hidden", !inBuild);
+  const selectedBuilding = cityBuildingSelect.value as CityBuilding;
+  cityBuildingBtn.disabled = !(selectedTileId && canBuildCityBuilding(state, selectedTileId, selectedBuilding));
+  cityBuildingBtn.textContent = `Gebäude errichten: ${CITY_BUILDING_LABEL[selectedBuilding]}`;
 
   for (const unitType of UNIT_TYPES) {
     const btn = recruitBtns[unitType];
@@ -312,9 +379,60 @@ function updateButtons() {
   endTurnBtn.classList.toggle("hidden", !(isHuman && state.phase === "attack"));
 }
 
-rollBtn.addEventListener("click", () => {
-  rollDice(state, Math.random);
+zoomOutBtn.addEventListener("click", () => { cameraZoom = Math.max(0.75, cameraZoom - 0.15); applyCamera(); });
+zoomInBtn.addEventListener("click", () => { cameraZoom = Math.min(2.2, cameraZoom + 0.15); applyCamera(); });
+cameraResetBtn.addEventListener("click", resetCamera);
+
+canvas.addEventListener("wheel", (ev) => {
+  ev.preventDefault();
+  cameraZoom = Math.max(0.75, Math.min(2.2, cameraZoom + (ev.deltaY < 0 ? 0.1 : -0.1)));
+  applyCamera();
+}, { passive: false });
+
+canvas.addEventListener("pointerdown", (ev) => {
+  pointerStart = { x: ev.clientX, y: ev.clientY, panX: cameraPanX, panY: cameraPanY };
+  dragged = false;
+  canvas.setPointerCapture(ev.pointerId);
+});
+canvas.addEventListener("pointermove", (ev) => {
+  if (!pointerStart) return;
+  const dx = ev.clientX - pointerStart.x;
+  const dy = ev.clientY - pointerStart.y;
+  if (Math.abs(dx) + Math.abs(dy) > 5) dragged = true;
+  cameraPanX = pointerStart.panX + dx;
+  cameraPanY = pointerStart.panY + dy;
+  applyCamera();
+});
+canvas.addEventListener("pointerup", () => { pointerStart = null; });
+
+foundSettlementBtn.addEventListener("click", () => {
+  settlementMode = !settlementMode;
+  if (settlementMode) roadMode = false;
   render();
+});
+
+roadPlanBtn.addEventListener("click", () => {
+  roadMode = true;
+  settlementMode = false;
+  render();
+});
+
+roadConfirmBtn.addEventListener("click", () => {
+  if (confirmRoad(state)) render();
+});
+
+roadCancelBtn.addEventListener("click", () => {
+  roadMode = false;
+  settlementMode = false;
+  cancelRoadPlan(state);
+  render();
+});
+
+cityBuildingBtn.addEventListener("click", () => {
+  if (selectedTileId) {
+    buildCityBuilding(state, selectedTileId, cityBuildingSelect.value as CityBuilding);
+    render();
+  }
 });
 
 for (const unitType of UNIT_TYPES) {
@@ -343,22 +461,27 @@ fortBtn.addEventListener("click", () => {
 endBuildBtn.addEventListener("click", () => {
   goToAttackPhase(state);
   selectedTileId = null;
+  roadMode = false;
+  settlementMode = false;
   render();
 });
 
 endTurnBtn.addEventListener("click", () => {
   selectedTileId = null;
+  roadMode = false;
+  settlementMode = false;
   endTurn(state);
   render();
   advanceIfAi();
 });
 
 canvas.addEventListener("click", (ev) => {
+  if (dragged) { dragged = false; return; }
   const player = currentPlayer(state);
   if (player.kind !== "human") return;
   const rect = canvas.getBoundingClientRect();
-  const x = ((ev.clientX - rect.left) / rect.width) * canvas.width;
-  const y = ((ev.clientY - rect.top) / rect.height) * canvas.height;
+  const x = ((ev.clientX - rect.left) / rect.width) * layout.width;
+  const y = ((ev.clientY - rect.top) / rect.height) * layout.height;
   const tileId = pixelToTileId(x, y, layout, state);
   if (!tileId) return;
   handleTileClick(tileId);
@@ -384,6 +507,24 @@ function handleTileClick(tileId: string) {
   }
 
   if (state.phase === "build") {
+    if (settlementMode) {
+      if (canFoundSettlement(state, tileId)) {
+        foundSettlement(state, tileId);
+        selectedTileId = tileId;
+        settlementMode = false;
+      }
+      render();
+      return;
+    }
+    if (roadMode) {
+      if (!selectedTileId && tile.ownerId === me) selectedTileId = tileId;
+      else if (selectedTileId && tile.ownerId === me) {
+        planRoad(state, selectedTileId, tileId);
+        roadMode = false;
+      }
+      render();
+      return;
+    }
     if (selectedTileId && canExpand(state, selectedTileId, tileId)) {
       expand(state, selectedTileId, tileId);
       selectedTileId = tileId;
@@ -391,6 +532,9 @@ function handleTileClick(tileId: string) {
       return;
     }
     if (tile.ownerId === me) {
+      selectedTileId = tileId;
+      render();
+    } else if (tile.ownerId === null) {
       selectedTileId = tileId;
       render();
     }

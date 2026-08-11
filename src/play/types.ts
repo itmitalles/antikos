@@ -22,6 +22,35 @@ export const RESOURCE_LABEL: Record<ResourceType, string> = {
   ore: "Erz",
 };
 
+export type TerrainType = "plains" | "forest" | "hills" | "mountains" | "desert" | "coast";
+export const TERRAIN_LABEL: Record<TerrainType, string> = {
+  plains: "Ebene", forest: "Wald", hills: "Hügelland", mountains: "Gebirge", desert: "Trockengebiet", coast: "Küste",
+};
+
+export type CityKind = "capital" | "settlement";
+export type CityBuilding = "government" | "housing" | "production" | "storage" | "military" | "culture" | "wonder";
+export const CITY_BUILDING_LABEL: Record<CityBuilding, string> = {
+  government: "Regierungssitz", housing: "Wohnviertel", production: "Produktionshof", storage: "Lager / Markt",
+  military: "Militärgebäude", culture: "Kultur- / Sakralbau", wonder: "Weltwunder",
+};
+
+export interface City {
+  id: string;
+  ownerId: string;
+  kind: CityKind;
+  level: number;
+  buildings: CityBuilding[];
+}
+
+export interface RoadPlan {
+  startId: string;
+  endId: string;
+  path: string[];
+  segments: number;
+  cost: Partial<Record<ResourceType, number>>;
+  turns: number;
+}
+
 /** Building name per tier (1-3) for each resource type's development. */
 export const BUILDING_NAMES: Record<ResourceType, [string, string, string]> = {
   wood: ["Holzfällerlager", "Sägewerk", "Forstgut"],
@@ -123,14 +152,19 @@ export interface Tile {
   q: number;
   r: number;
   continentId: number;
+  terrain: TerrainType;
   resource: ResourceType | null;
-  number: number | null;
   ownerId: string | null;
   units: Units;
   population: Population;
   /** Development tier of the resource building on this tile: 0 = undeveloped, 1-3 = built up. */
   level: number;
   hasFort: boolean;
+  /** The first territory placed by a player becomes their visible capital. */
+  isCapital: boolean;
+  /** River crossings on the six edges of this hex; neighbouring tiles share an edge. */
+  riverEdges: number[];
+  cityId: string | null;
 }
 
 export interface Continent {
@@ -152,12 +186,12 @@ export interface Player {
   kind: PlayerKind;
   resources: ResourceStock;
   alive: boolean;
+  capitalId: string | null;
 }
 
 export type Phase =
   | "placement"
   | "bonus"
-  | "roll"
   | "build"
   | "attack"
   | "gameover";
@@ -169,13 +203,15 @@ export interface GameState {
   players: Player[];
   currentPlayerIndex: number;
   phase: Phase;
-  lastRoll: [number, number] | null;
   log: string[];
   bonusRemaining: number;
   winnerId: string | null;
   placementQueue: string[];
   placementIndex: number;
   hasAttackedThisTurn: boolean;
+  cities: Record<string, City>;
+  roadSegments: string[];
+  roadPlan: RoadPlan | null;
 }
 
 export function emptyStock(): ResourceStock {

@@ -14,7 +14,7 @@ export function axialFromId(id: string): Axial {
   return { q, r };
 }
 
-const DIRECTIONS: Axial[] = [
+export const AXIAL_DIRECTIONS: Axial[] = [
   { q: 1, r: 0 },
   { q: 1, r: -1 },
   { q: 0, r: -1 },
@@ -24,7 +24,7 @@ const DIRECTIONS: Axial[] = [
 ];
 
 export function neighbors(a: Axial): Axial[] {
-  return DIRECTIONS.map((d) => ({ q: a.q + d.q, r: a.r + d.r }));
+  return AXIAL_DIRECTIONS.map((d) => ({ q: a.q + d.q, r: a.r + d.r }));
 }
 
 export function hexDistance(a: Axial, b: Axial): number {

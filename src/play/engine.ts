@@ -1,14 +1,13 @@
 import { axialFromId, hexId, neighbors } from "./hex";
 import { generateMap, type Rng } from "./mapgen";
-import type { GameState, Player, PlayerKind, PopClass, ResourceStock, ResourceType, Tile, UnitType, Units } from "./types";
+import type { City, CityBuilding, GameState, Player, PlayerKind, ResourceStock, ResourceType, RoadPlan, Tile, UnitType, Units } from "./types";
 import {
   EXPAND_COST,
   FORT_COST,
   MAX_TILE_LEVEL,
-  POP_CAPACITY_BY_LEVEL,
   POP_CLASSES,
-  POP_TARGET_RATIO,
   UNIT_COST,
+  CITY_BUILDING_LABEL,
   UNIT_LABEL,
   UNIT_SOURCE_CLASS,
   UNIT_TYPES,
@@ -25,6 +24,13 @@ export const STARTING_STOCK: Partial<Record<ResourceType, number>> = {
   grain: 1,
   ore: 1,
 };
+export const SETTLEMENT_COST: Partial<Record<ResourceType, number>> = { wood: 2, stone: 1 };
+export const ROAD_COST_PER_TWO_SEGMENTS: Partial<Record<ResourceType, number>> = { wood: 1 };
+export const CITY_BUILDING_COST: Record<CityBuilding, Partial<Record<ResourceType, number>>> = {
+  government: { stone: 2 }, housing: { wood: 1 }, production: { wood: 1, stone: 1 }, storage: { wood: 2 },
+  military: { stone: 2 }, culture: { marble: 1, wine: 1 }, wonder: { marble: 3 },
+};
+export const CITY_BUILDING_SLOT_LIMIT = { capital: 4, settlement: 3 } as const;
 const ARMIES_PER_PLAYER_PLACEMENT = 3;
 
 export interface PlayerConfig {
@@ -47,8 +53,34 @@ export function createGame(playerConfigs: PlayerConfig[], rng: Rng = Math.random
       kind: cfg.kind,
       resources,
       alive: true,
+      capitalId: null,
     };
   });
+
+  // Spread capitals across continents before placement. Prefer developed land,
+  // then fall back to any tile if a tiny continent has no resource tile.
+  players.forEach((player, index) => {
+    const continent = continents[index % continents.length];
+    const candidates = continent.tileIds.filter((id) => tiles[id].resource !== null);
+    const pool = candidates.length > 0 ? candidates : continent.tileIds;
+    const capitalId = pool[Math.floor(rng() * pool.length)];
+    player.capitalId = capitalId;
+    tiles[capitalId].isCapital = true;
+  });
+
+  const cities: Record<string, City> = {};
+  for (const player of players) {
+    const tileId = player.capitalId!;
+    const city: City = {
+      id: `capital-${player.id}`,
+      ownerId: player.id,
+      kind: "capital",
+      level: 1,
+      buildings: ["government", "wonder"],
+    };
+    cities[city.id] = city;
+    tiles[tileId].cityId = city.id;
+  }
 
   const placementQueue: string[] = [];
   for (let round = 0; round < ARMIES_PER_PLAYER_PLACEMENT; round++) {
@@ -63,13 +95,15 @@ export function createGame(playerConfigs: PlayerConfig[], rng: Rng = Math.random
     players,
     currentPlayerIndex: 0,
     phase: "placement",
-    lastRoll: null,
     log: ["Platzierungsphase: jeder Spieler setzt 3 Truppen."],
     bonusRemaining: 0,
     winnerId: null,
     placementQueue,
     placementIndex: 0,
     hasAttackedThisTurn: false,
+    cities,
+    roadSegments: [],
+    roadPlan: null,
   };
 }
 
@@ -90,6 +124,116 @@ export function neighborIds(state: GameState, tileId: string): string[] {
     .filter((id) => id in state.tiles);
 }
 
+export function roadKey(a: string, b: string): string {
+  return [a, b].sort().join("|");
+}
+
+function canAfford(player: Player, cost: Partial<Record<ResourceType, number>>): boolean {
+  return Object.entries(cost).every(([res, amt]) => player.resources[res as ResourceType] >= (amt ?? 0));
+}
+
+function pay(player: Player, cost: Partial<Record<ResourceType, number>>) {
+  for (const [res, amt] of Object.entries(cost)) player.resources[res as ResourceType] -= amt ?? 0;
+}
+
+function shortestRoadPath(state: GameState, startId: string, endId: string): string[] | null {
+  const queue = [startId];
+  const previous = new Map<string, string | null>([[startId, null]]);
+  const ownerId = currentPlayer(state).id;
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current === endId) break;
+    for (const next of neighborIds(state, current)) {
+      if (previous.has(next) || (state.tiles[next].ownerId && state.tiles[next].ownerId !== ownerId)) continue;
+      previous.set(next, current);
+      queue.push(next);
+    }
+  }
+  if (!previous.has(endId)) return null;
+  const path: string[] = [];
+  for (let id: string | null = endId; id; id = previous.get(id) ?? null) path.unshift(id);
+  return path;
+}
+
+export function roadPlanCost(segments: number): Partial<Record<ResourceType, number>> {
+  return { wood: Math.max(1, Math.ceil(segments / 2)) };
+}
+
+export function planRoad(state: GameState, startId: string, endId: string): RoadPlan | null {
+  if (state.phase !== "build" || startId === endId) return null;
+  const me = currentPlayer(state).id;
+  if (state.tiles[startId]?.ownerId !== me || state.tiles[endId]?.ownerId !== me) return null;
+  const path = shortestRoadPath(state, startId, endId);
+  if (!path || path.length < 2) return null;
+  const segments = path.length - 1;
+  const plan: RoadPlan = { startId, endId, path, segments, cost: roadPlanCost(segments), turns: Math.max(1, Math.ceil(segments / 3)) };
+  state.roadPlan = plan;
+  return plan;
+}
+
+export function confirmRoad(state: GameState): boolean {
+  if (state.phase !== "build" || !state.roadPlan) return false;
+  const player = currentPlayer(state);
+  if (!canAfford(player, state.roadPlan.cost)) return false;
+  pay(player, state.roadPlan.cost);
+  for (let i = 1; i < state.roadPlan.path.length; i++) {
+    const key = roadKey(state.roadPlan.path[i - 1], state.roadPlan.path[i]);
+    if (!state.roadSegments.includes(key)) state.roadSegments.push(key);
+  }
+  log(state, `${player.name} baut eine Straße über ${state.roadPlan.segments} Segmente (${state.roadPlan.turns} Runden geplant).`);
+  state.roadPlan = null;
+  return true;
+}
+
+export function cancelRoadPlan(state: GameState) {
+  state.roadPlan = null;
+}
+
+export function canFoundSettlement(state: GameState, tileId: string): boolean {
+  if (state.phase !== "build") return false;
+  const player = currentPlayer(state);
+  const tile = state.tiles[tileId];
+  if (!tile || tile.ownerId !== null || tile.cityId !== null) return false;
+  const adjacent = neighborIds(state, tileId).some((id) => state.tiles[id].ownerId === player.id);
+  return adjacent && canAfford(player, SETTLEMENT_COST);
+}
+
+export function foundSettlement(state: GameState, tileId: string): boolean {
+  if (!canFoundSettlement(state, tileId)) return false;
+  const player = currentPlayer(state);
+  pay(player, SETTLEMENT_COST);
+  const tile = state.tiles[tileId];
+  tile.ownerId = player.id;
+  tile.level = 1;
+  tile.population.slaves = 1;
+  const city: City = { id: `settlement-${player.id}-${tileId}`, ownerId: player.id, kind: "settlement", level: 1, buildings: ["housing"] };
+  state.cities[city.id] = city;
+  tile.cityId = city.id;
+  log(state, `${player.name} gründet eine neue Siedlung auf ${tileId}.`);
+  return true;
+}
+
+export function canBuildCityBuilding(state: GameState, tileId: string, building: CityBuilding): boolean {
+  if (state.phase !== "build") return false;
+  const tile = state.tiles[tileId];
+  const city = tile?.cityId ? state.cities[tile.cityId] : null;
+  if (!tile || !city || city.ownerId !== currentPlayer(state).id || city.buildings.includes(building)) return false;
+  const slottedBuildings = city.buildings.filter((item) => item !== "government" && item !== "wonder");
+  if (slottedBuildings.length >= CITY_BUILDING_SLOT_LIMIT[city.kind]) return false;
+  return canAfford(currentPlayer(state), CITY_BUILDING_COST[building]);
+}
+
+export function buildCityBuilding(state: GameState, tileId: string, building: CityBuilding): boolean {
+  if (!canBuildCityBuilding(state, tileId, building)) return false;
+  const player = currentPlayer(state);
+  const city = state.cities[state.tiles[tileId].cityId!];
+  pay(player, CITY_BUILDING_COST[building]);
+  city.buildings.push(building);
+  city.level = Math.min(4, city.level + 1);
+  log(state, `${player.name} errichtet ${CITY_BUILDING_LABEL[building]} in ${city.kind === "capital" ? "der Hauptstadt" : "der Siedlung"}.`);
+  return true;
+}
+
 export function ownedTileIds(state: GameState, playerId: string): string[] {
   return state.tileOrder.filter((id) => state.tiles[id].ownerId === playerId);
 }
@@ -107,16 +251,6 @@ function log(state: GameState, msg: string) {
   if (state.log.length > 200) state.log.shift();
 }
 
-function canAfford(player: Player, cost: Partial<Record<ResourceType, number>>): boolean {
-  return Object.entries(cost).every(([res, amt]) => player.resources[res as ResourceType] >= (amt ?? 0));
-}
-
-function pay(player: Player, cost: Partial<Record<ResourceType, number>>) {
-  for (const [res, amt] of Object.entries(cost)) {
-    player.resources[res as ResourceType] -= amt ?? 0;
-  }
-}
-
 // --- Placement phase ---
 
 export function placementCurrentPlayerId(state: GameState): string | null {
@@ -130,10 +264,13 @@ export function placeInitialArmy(state: GameState, tileId: string): boolean {
   if (!playerId) return false;
   const tile = state.tiles[tileId];
   if (!tile || tile.ownerId !== null) return false;
+  const player = getPlayer(state, playerId);
+  if (ownedTileIds(state, playerId).length === 0 && player.capitalId !== tileId) return false;
 
   tile.ownerId = playerId;
   tile.units.militia += 1;
-  if (tile.resource) {
+  if (tile.isCapital) log(state, `${player.name} besetzt die Hauptstadt — vier Bauplätze und ein Wunder stehen bereit.`);
+  if (tile.isCapital && tile.resource) {
     tile.level = 1;
     tile.population.slaves = 1;
   }
@@ -161,7 +298,7 @@ function beginTurn(state: GameState) {
     log(state, `${player.name} erhält ${bonus} Bonustruppe(n) für kontrollierte Kontinente.`);
   } else {
     state.bonusRemaining = 0;
-    state.phase = "roll";
+    state.phase = "build";
   }
 }
 
@@ -175,84 +312,9 @@ export function placeBonusArmy(state: GameState, tileId: string): boolean {
   state.bonusRemaining -= 1;
   if (state.bonusRemaining <= 0) {
     state.bonusRemaining = 0;
-    state.phase = "roll";
+    state.phase = "build";
   }
   return true;
-}
-
-// --- Population growth ---
-
-/** Grows whichever pop class is furthest below its target share, if there's room. */
-function growPopulation(tile: Tile): boolean {
-  const cap = POP_CAPACITY_BY_LEVEL[tile.level] ?? 0;
-  if (totalPopulation(tile) >= cap) return false;
-
-  let bestClass: PopClass = "slaves";
-  let bestDeficit = -Infinity;
-  for (const cls of POP_CLASSES) {
-    const deficit = POP_TARGET_RATIO[cls] * cap - tile.population[cls];
-    if (deficit > bestDeficit) {
-      bestDeficit = deficit;
-      bestClass = cls;
-    }
-  }
-  tile.population[bestClass] += 1;
-  return true;
-}
-
-// --- Roll & production ---
-
-export function rollDice(state: GameState, rng: Rng = Math.random): [number, number] | null {
-  if (state.phase !== "roll") return null;
-  const d1 = 1 + Math.floor(rng() * 6);
-  const d2 = 1 + Math.floor(rng() * 6);
-  const sum = d1 + d2;
-  state.lastRoll = [d1, d2];
-
-  if (sum === 7) {
-    log(state, `Würfel: ${d1} + ${d2} = 7 — keine Produktion.`);
-  } else {
-    const gains = new Map<string, Partial<Record<ResourceType, number>>>();
-    const matchedTiles: string[] = [];
-    for (const id of state.tileOrder) {
-      const tile = state.tiles[id];
-      if (tile.number === sum && tile.ownerId && tile.resource && tile.level > 0) {
-        matchedTiles.push(id);
-        const output = tile.level + Math.floor(tile.population.slaves / 2);
-        const g = gains.get(tile.ownerId) ?? {};
-        g[tile.resource] = (g[tile.resource] ?? 0) + output;
-        gains.set(tile.ownerId, g);
-      }
-    }
-    for (const [playerId, g] of gains) {
-      const player = getPlayer(state, playerId);
-      const parts: string[] = [];
-      for (const [res, amt] of Object.entries(g)) {
-        player.resources[res as ResourceType] += amt ?? 0;
-        parts.push(`${amt} ${res}`);
-      }
-      log(state, `Würfel: ${d1} + ${d2} = ${sum} — ${player.name} erhält ${parts.join(", ")}.`);
-    }
-    if (gains.size === 0) {
-      log(state, `Würfel: ${d1} + ${d2} = ${sum} — keine Produktion.`);
-    }
-
-    const grown = new Map<string, number>();
-    for (const id of matchedTiles) {
-      const tile = state.tiles[id];
-      const owner = getPlayer(state, tile.ownerId!);
-      if (owner.resources.grain < 1) continue;
-      if (growPopulation(tile)) {
-        grown.set(owner.id, (grown.get(owner.id) ?? 0) + 1);
-      }
-    }
-    for (const [playerId, count] of grown) {
-      log(state, `${getPlayer(state, playerId).name}: Bevölkerung wächst in ${count} Gebiet(en).`);
-    }
-  }
-
-  state.phase = "build";
-  return [d1, d2];
 }
 
 // --- Build phase ---
@@ -275,10 +337,6 @@ export function expand(state: GameState, fromTileId: string, toTileId: string): 
   const to = state.tiles[toTileId];
   to.ownerId = player.id;
   to.units.militia = 1;
-  if (to.resource) {
-    to.level = 1;
-    to.population.slaves = 1;
-  }
   log(state, `${player.name} erschließt ${toTileId}.`);
   return true;
 }

@@ -7,7 +7,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Antikos — wutz.io/antikos-strategy</title>
-    <meta name="description" content="Antikos: rundenbasiertes Aufbau- &amp; Eroberungsspiel im antiken Mittelmeer-Setting. Hex-Karte, Rohstoffe, Bevölkerung, Truppen." />
+    <meta name="description" content="Antikos: rundenbasiertes Zivilisationsspiel mit großer Hexwelt, Städten, Straßen, Flüssen und sichtbaren Ressourcen." />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>" />
     <style>
       :root {
@@ -107,16 +107,40 @@
         flex-wrap: wrap;
       }
       #board-wrap {
-        background: var(--panel);
-        border: 1px solid var(--border);
+        background: linear-gradient(180deg, #202a32 0%, #11171d 100%);
+        border: 1px solid #3c4b57;
         border-radius: 10px;
-        padding: 10px;
+        padding: 38px 28px 46px;
         flex: 1 1 520px;
         min-width: 0;
         display: flex;
         justify-content: center;
+        align-items: center;
+        position: relative;
+        overflow: hidden;
+        box-shadow: inset 0 -34px 0 rgba(0,0,0,0.2), 0 16px 35px rgba(0,0,0,0.3);
       }
-      #board-canvas { max-width: 100%; height: auto; display: block; }
+      #board-canvas {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        image-rendering: auto;
+        /* The terrain and buildings provide the isometric depth. Keep the canvas flat
+           so panning, zooming and hex hit-testing use the same coordinate plane. */
+        transform: scale(1.08);
+        transform-origin: 50% 50%;
+        filter: saturate(1.12) contrast(1.05);
+        box-shadow: 0 22px 22px rgba(0,0,0,0.48);
+      }
+      #board-controls {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        display: flex;
+        gap: 5px;
+        z-index: 2;
+      }
+      #board-controls button { padding: 4px 10px; background: #26343d; border-color: #4d626e; }
 
       #sidebar {
         flex: 0 0 320px;
@@ -139,10 +163,11 @@
       }
       #turn-info { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
       #turn-info .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-      #dice-display { margin-top: 4px; color: var(--muted); font-size: 14px; min-height: 1.4em; }
       #action-hint { margin-top: 8px; color: var(--muted); font-size: 13px; }
       #tile-info { margin-top: 6px; font-size: 13px; color: var(--ink); min-height: 1.2em; }
       .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      .build-select { width: 100%; padding: 8px; background: var(--panel-2); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; }
+      .preview-note { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
 
       #resource-panel { display: flex; gap: 12px; flex-wrap: wrap; font-size: 16px; }
       #resource-panel .res { background: var(--panel-2); border-radius: 6px; padding: 4px 8px; }
@@ -193,7 +218,7 @@
 
     <div id="setup-screen">
       <h1>⚔️ Antikos</h1>
-      <p>Siedle Hex-Felder im antiken Mittelmeer, baue Bevölkerung und Wirtschaft auf, hebe Truppen aus und erobere die Karte — inspiriert von Siedlern von Catan und Risiko. 2–4 Spieler, lokal (Hotseat) oder gegen KI.</p>
+      <p>Baue eine wachsende Zivilisation auf einer großen Hexwelt: Hauptstadt, Siedlungen, Straßen, Flüsse und sichtbare Ressourcen. 2–4 Spieler, lokal (Hotseat) oder gegen KI.</p>
       <label for="player-count">Spieleranzahl</label>
       <select id="player-count">
         <option value="2">2</option>
@@ -207,15 +232,30 @@
     <div id="game-screen" class="hidden">
       <div id="board-wrap">
         <canvas id="board-canvas"></canvas>
+        <div id="board-controls" aria-label="Kartenkamera">
+          <button id="camera-zoom-out" type="button" title="Herauszoomen">−</button>
+          <button id="camera-reset" type="button" title="Karte zentrieren">⌂</button>
+          <button id="camera-zoom-in" type="button" title="Hineinzoomen">+</button>
+        </div>
       </div>
       <div id="sidebar">
         <div class="panel">
           <div id="turn-info"></div>
-          <div id="dice-display"></div>
           <div id="action-hint"></div>
           <div id="tile-info"></div>
           <div class="actions">
-            <button id="action-roll" class="hidden">Würfeln</button>
+            <button id="action-found-settlement" class="hidden">Siedlung gründen</button>
+            <button id="action-road-plan" class="hidden">Straße planen</button>
+            <button id="action-road-confirm" class="hidden">Straßenauftrag bestätigen</button>
+            <button id="action-road-cancel" class="hidden">Plan verwerfen</button>
+            <select id="city-building-select" class="build-select hidden">
+              <option value="housing">Wohnviertel</option>
+              <option value="production">Produktionshof</option>
+              <option value="storage">Lager / Markt</option>
+              <option value="military">Militärgebäude</option>
+              <option value="culture">Kultur- / Sakralbau</option>
+            </select>
+            <button id="action-city-building" class="hidden">Gebäude errichten</button>
             <button id="action-recruit-militia" class="hidden">Miliz ausheben</button>
             <button id="action-recruit-legionary" class="hidden">Legionäre ausheben</button>
             <button id="action-recruit-cavalry" class="hidden">Reiterei ausheben</button>
@@ -224,6 +264,7 @@
             <button id="action-end-build" class="hidden">Weiter zum Angriff</button>
             <button id="action-end-turn" class="hidden">Zug beenden</button>
           </div>
+          <p class="preview-note">Kartenerzeugung, Ressourcenverteilung, Erträge, Gebäudeboni und Handelsregeln sind im Vertical Slice vorläufig.</p>
         </div>
         <div class="panel">
           <h2>Rohstoffe</h2>
